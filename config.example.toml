@@ -1,0 +1,29 @@
+# Copy to config.toml and fill in. Relative paths are relative to this file.
+
+[discord]
+# Bot token. Leave empty and set the PROXYCHAT_DISCORD_TOKEN environment variable instead
+# if you'd rather not keep it in a file.
+token = ""
+# Right-click your server > Copy Server ID (needs Developer Mode in Discord settings)
+guild_id = 0
+# Category for the voice channels. Either an existing category's id (right-click it >
+# Copy Category ID), which can be shared with the server's own channels, or a name,
+# which the bot creates as a private category if it doesn't exist. category_id wins.
+# The bot only ever deletes, renames or reorders channels it created itself, and keeps
+# them together at the bottom of the category: Galactic Community, federations A-Z, embassies A-Z, calls.
+category_id = 0
+category = "Proxy Chat"
+# Optional text channel id for "X and Y have established communications" posts. 0 = off.
+announce_channel_id = 0
+# Text channel the bot keeps in its category for commands (follows the category's
+# permissions, kept through /proxychat cleanup). "" = none.
+commands_channel = "bot-commands"
+# Roles that may use the /proxychat admin commands, besides anyone with Manage Server.
+# e.g. admin_role_ids = [123456789012345678]
+admin_role_ids = []
+
+[game]
+# Defaults to Documents/Paradox Interactive/Stellaris/logs/game.log
+log_path = ""
+state_path = "state.json"
+poll_seconds = 1.0

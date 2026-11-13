@@ -1,0 +1,12 @@
+# Local configs hold server ids (and possibly a token). Only the example is shared.
+config*.toml
+!config.example.toml
+
+# Runtime state: channel ids and players' Discord user ids
+state*.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

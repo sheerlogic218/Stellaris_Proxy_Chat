@@ -1,0 +1,195 @@
+# Proxy Chat scripted effects.
+# Scripted effects need \\[ in log strings (as in vanilla print_scope_effect);
+# event files take a plain [.
+
+# global_event_country scope. One-time setup of the id counter and the game key.
+# The game key is three random 3-digit numbers (synced RNG, so MP-safe) that
+# lets the watcher tell different campaigns apart.
+proxychat_init_globals = {
+	if = {
+		limit = { NOT = { has_global_flag = proxychat_init } }
+		set_global_flag = proxychat_init
+		set_variable = { which = proxychat_next_id value = 0 }
+		set_variable_to_random_value = { which = proxychat_ka min = 100 max = 999 rounded = yes }
+		set_variable_to_random_value = { which = proxychat_kb min = 100 max = 999 rounded = yes }
+		set_variable_to_random_value = { which = proxychat_kc min = 100 max = 999 rounded = yes }
+	}
+}
+
+# Country scope. Gives the country a stable numeric id (proxychat_id) and a copy
+# of the game key. Comms between starting countries fire before game_start.1
+# creates global_event_country, so ids wait until it exists; the next monthly
+# sweep fills them in.
+proxychat_ensure_id = {
+	if = {
+		limit = {
+			NOT = { has_country_flag = proxychat_has_id }
+			exists = event_target:global_event_country
+		}
+		event_target:global_event_country = {
+			proxychat_init_globals = yes
+			change_variable = { which = proxychat_next_id value = 1 }
+		}
+		set_variable = { which = proxychat_id value = event_target:global_event_country.proxychat_next_id }
+		set_variable = { which = proxychat_ka value = event_target:global_event_country.proxychat_ka }
+		set_variable = { which = proxychat_kb value = event_target:global_event_country.proxychat_kb }
+		set_variable = { which = proxychat_kc value = event_target:global_event_country.proxychat_kc }
+		set_country_flag = proxychat_has_id
+		proxychat_save_slot_target = yes
+	}
+}
+
+# Country scope.
+# PROXYCHAT|ID|<game key>|<id>|<H = human now, A = dropped to AI>|<empire name>|<ruler name>
+proxychat_log_id = {
+	if = {
+		limit = { is_ai = no }
+		log = "PROXYCHAT|ID|\\[This.proxychat_ka]-\\[This.proxychat_kb]-\\[This.proxychat_kc]|\\[This.proxychat_id]|H|\\[This.GetName]|\\[This.GetRulerName]"
+	}
+	else = {
+		log = "PROXYCHAT|ID|\\[This.proxychat_ka]-\\[This.proxychat_kb]-\\[This.proxychat_kc]|\\[This.proxychat_id]|A|\\[This.GetName]|\\[This.GetRulerName]"
+	}
+}
+
+# ---- Federations ----------------------------------------------------------
+
+# Federation scope. Gives the federation a stable numeric id (proxychat_fid, from
+# the global counter proxychat_next_fid; renames keep it) and copies it onto
+# every member as a country variable, since localisation reads it from a country.
+proxychat_ensure_fed_id = {
+	if = {
+		limit = {
+			NOT = { has_federation_flag = proxychat_has_fid }
+			exists = event_target:global_event_country
+		}
+		event_target:global_event_country = {
+			proxychat_init_globals = yes
+			change_variable = { which = proxychat_next_fid value = 1 }
+		}
+		set_variable = { which = proxychat_fid value = event_target:global_event_country.proxychat_next_fid }
+		set_federation_flag = proxychat_has_fid
+	}
+	every_member = {
+		set_variable = { which = proxychat_fid value = prev.proxychat_fid }
+	}
+}
+
+# Country scope: the empire opening the Voice Chat menu (from proxychat.40's immediate).
+# Makes sure its own federation has an id, and saves the leader of each federation
+# it has association status with as event targets proxychat_f1..proxychat_f4,
+# counted in proxychat_assoc_count. Association is with a whole federation, so
+# its leader stands for it (one per federation).
+proxychat_collect_federations = {
+	if = {
+		limit = { has_federation = yes }
+		federation = { proxychat_ensure_fed_id = yes }
+	}
+	save_event_target_as = proxychat_fed_viewer
+	set_variable = { which = proxychat_assoc_count value = 0 }
+	every_playable_country = {
+		limit = {
+			is_federation_leader = yes
+			NOT = { is_same_value = event_target:proxychat_fed_viewer }
+			NOT = { is_in_federation_with = event_target:proxychat_fed_viewer }
+			OR = {
+				has_association_status = event_target:proxychat_fed_viewer
+				event_target:proxychat_fed_viewer = { has_association_status = prev }
+			}
+		}
+		federation = { proxychat_ensure_fed_id = yes }
+		event_target:proxychat_fed_viewer = { change_variable = { which = proxychat_assoc_count value = 1 } }
+		if = {
+			limit = { event_target:proxychat_fed_viewer = { check_variable = { which = proxychat_assoc_count value = 1 } } }
+			save_event_target_as = proxychat_f1
+		}
+		else_if = {
+			limit = { event_target:proxychat_fed_viewer = { check_variable = { which = proxychat_assoc_count value = 2 } } }
+			save_event_target_as = proxychat_f2
+		}
+		else_if = {
+			limit = { event_target:proxychat_fed_viewer = { check_variable = { which = proxychat_assoc_count value = 3 } } }
+			save_event_target_as = proxychat_f3
+		}
+		else_if = {
+			limit = { event_target:proxychat_fed_viewer = { check_variable = { which = proxychat_assoc_count value = 4 } } }
+			save_event_target_as = proxychat_f4
+		}
+	}
+}
+
+# ---- Monthly sweep (proxychat.10), also run a day after federation changes (proxychat.12)
+# The authoritative list of player countries, player pairs with communications,
+# Galactic Community members and federations. The watcher replaces its lists
+# with each complete sweep, which covers lost comms, MP save loads and anything missed.
+#
+# PROXYCHAT|SWEEP_BEGIN|<game key>
+# PROXYCHAT|ID|...                          (one per player country)
+# PROXYCHAT|GALCOM|<id>                     (player empires in the Galactic Community)
+# PROXYCHAT|FED|<fid>|<id>|<name>           (player empires in a federation)
+# PROXYCHAT|FED_ASSOC|<fid>|<id>|<name>     (player empires with association status)
+# PROXYCHAT|PAIR|<id>|<id>                  (each pair appears twice, once from each side)
+# PROXYCHAT|SWEEP_END|<game key>
+proxychat_sweep = {
+	if = {
+		limit = { exists = event_target:global_event_country }
+		event_target:global_event_country = {
+			proxychat_init_globals = yes
+			log = "PROXYCHAT|SWEEP_BEGIN|\\[This.proxychat_ka]-\\[This.proxychat_kb]-\\[This.proxychat_kc]"
+		}
+		# Pass 0: every federation gets an id, copied onto its members
+		every_playable_country = {
+			limit = { is_federation_leader = yes }
+			federation = { proxychat_ensure_fed_id = yes }
+		}
+		# Pass 1: mark humans and make sure everyone has an id
+		every_playable_country = {
+			limit = { proxychat_is_player = yes }
+			if = {
+				limit = { is_ai = no }
+				set_country_flag = proxychat_human
+			}
+			proxychat_ensure_id = yes
+			proxychat_save_slot_target = yes   # for the Voice Chat menu's contact list
+			proxychat_log_id = yes
+			if = {
+				limit = {
+					is_galactic_community_formed = yes
+					is_galactic_community_member = yes
+				}
+				log = "PROXYCHAT|GALCOM|\\[This.proxychat_id]"
+			}
+			if = {
+				limit = { has_federation = yes }
+				log = "PROXYCHAT|FED|\\[This.proxychat_fid]|\\[This.proxychat_id]|\\[This.Federation.GetName]"
+			}
+			save_event_target_as = proxychat_sweep_country
+			every_playable_country = {
+				limit = {
+					is_federation_leader = yes
+					NOT = { is_same_value = event_target:proxychat_sweep_country }
+					NOT = { is_in_federation_with = event_target:proxychat_sweep_country }
+					OR = {
+						has_association_status = event_target:proxychat_sweep_country
+						event_target:proxychat_sweep_country = { has_association_status = prev }
+					}
+				}
+				log = "PROXYCHAT|FED_ASSOC|\\[This.proxychat_fid]|\\[proxychat_sweep_country.proxychat_id]|\\[This.Federation.GetName]"
+			}
+		}
+		# Pass 2: pairs (separate so every country already has an id)
+		every_playable_country = {
+			limit = { proxychat_is_player = yes }
+			every_playable_country = {
+				limit = {
+					proxychat_is_player = yes
+					NOT = { is_same_value = prev }
+					has_communications = prev
+				}
+				log = "PROXYCHAT|PAIR|\\[Prev.proxychat_id]|\\[This.proxychat_id]"
+			}
+		}
+		event_target:global_event_country = {
+			log = "PROXYCHAT|SWEEP_END|\\[This.proxychat_ka]-\\[This.proxychat_kb]-\\[This.proxychat_kc]"
+		}
+	}
+}

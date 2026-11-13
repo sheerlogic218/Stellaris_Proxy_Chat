@@ -1,0 +1,56 @@
+# Proxy Chat: adds the "Voice Chat" button to the main screen.
+#
+# maingui_flag is a full-screen, see-through window that always shows (it holds the
+# empire flag in the top-left corner). Windows are overridden by name, and the file
+# loaded last wins, so this replaces vanilla's and UI Overhaul Dynamic's versions
+# (theirs are identical apart from formatting). It's the same trick
+# Ultimate Automation uses, so the two mods conflict: whichever loads last keeps
+# its buttons.
+#
+# Keep topbar_shield_decoration and button_topbar_government as they are: the game
+# binds the flag button by name.
+guiTypes = {
+	containerWindowType = {
+		name = "maingui_flag"
+		position = { x = 0 y = 0 }
+		size = { width = 100% height = 100% }
+
+		iconType = {
+			name = "topbar_shield_decoration"
+			spriteType = "GFX_topbar_shield_decoration"
+			position = { x = 0 y = 0 }
+			Orientation = "UPPER_LEFT"
+			alwaysTransparent = yes
+		}
+
+		buttonType = {
+			name = "button_topbar_government"
+			quadTextureSprite = "GFX_empire_flag_64"
+			position = { x = -3 y = 0 }
+			Orientation = "UPPER_LEFT"
+			pdx_tooltip = "topbar_button_government_instant"
+			pdx_tooltip_delayed = "topbar_button_government_delayed"
+			clicksound = interface
+			oversound = no_sound
+			#shortcut = "F1"
+		}
+
+		# Proxy Chat. Adjust position to move it: it's measured from the
+		# bottom-left corner of the screen.
+		effectbuttonType = {
+			name = "proxychat_voice_button"
+			position = { x = 10 y = -60 }
+			Orientation = "LOWER_LEFT"
+			size = { x = 110 y = 24 }
+			quadTextureSprite = GFX_tiling_button_standard
+
+			font = "cg_16b"
+			buttonText = "PROXYCHAT_VOICE_BUTTON"
+
+			tooltipText = "PROXYCHAT_VOICE_BUTTON_DESC"
+
+			effect = proxychat_voice_button_effect
+			clicksound = interface
+		}
+	}
+}

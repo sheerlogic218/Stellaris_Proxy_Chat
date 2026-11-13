@@ -1,0 +1,21 @@
+# Proxy Chat: the "Voice Chat" button in the corner of the main screen
+# (interface/proxychat_maingui_flag.gui) opens the voice chat menu, proxychat.40.
+#
+# This = selected object (planet, fleet...) or the player country; From = player country.
+# Always use From, since something may be selected when the button is clicked.
+proxychat_voice_button_effect = {
+	potential = {
+		from = { is_ai = no }
+	}
+	allow = {
+		always = yes
+	}
+	effect = {
+		hidden_effect = {
+			from = {
+				proxychat_ensure_id = yes
+				country_event = { id = proxychat.40 }
+			}
+		}
+	}
+}

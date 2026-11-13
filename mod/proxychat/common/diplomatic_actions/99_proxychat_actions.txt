@@ -1,0 +1,46 @@
+# Proxy Chat: replaces the vanilla "Harm Relations" diplomatic action with a
+# "Subspace Channel" button that opens the proxy chat menu (event proxychat.20).
+#
+# Mods can't add new diplomatic actions ("Diplomatic action is missing token"),
+# but can redefine a vanilla one by key from a later-loading file. Tried:
+# - Start Proxy War: click is hard-wired to open the Proxy War window.
+# - Insult as the call button: worked in design, but dropped to keep Insult vanilla.
+# - Harm Relations (this): the engine still shows its envoy selection window
+#   first, but no envoy is used and on_accept then runs. 3 clicks to call.
+#
+# Envoy settings are per action, not per target, so Harm Relations can't stay
+# vanilla for AI empires: the button is only shown to human players on player
+# empires, and Harm Relations is gone against AI empires (AI empires can't use
+# it either).
+#
+# Root = actor, From = recipient.
+action_harm_relation = {
+	icon = "GFX_diplomacy_improve_relation"
+	auto_accepted = yes
+	requires_actor_independence = no
+	requires_recipient_independence = no
+	requires_recipient_federation_leader = no
+	action_type = neutral
+
+	potential = {
+		hidden_trigger = {
+			is_ai = no
+			from = { proxychat_call_target = yes }
+		}
+	}
+
+	possible = {
+		has_communications = from
+	}
+
+	on_accept = {
+		hidden_effect = {
+			proxychat_ensure_id = yes
+			from = {
+				proxychat_ensure_id = yes
+				save_event_target_as = proxychat_target
+			}
+			country_event = { id = proxychat.20 }
+		}
+	}
+}

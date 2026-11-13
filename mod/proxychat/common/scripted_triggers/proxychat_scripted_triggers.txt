@@ -1,0 +1,19 @@
+# Country scope. True for countries a human plays or has played this game, so a
+# player who drops (their empire turns AI) keeps their contacts.
+proxychat_is_player = {
+	OR = {
+		is_ai = no
+		has_country_flag = proxychat_human
+	}
+}
+
+# Country scope (the empire being called). Player empires, or any regular empire
+# when testing in single-player. Turn testing on from the console with:
+#   effect set_global_flag = proxychat_test_ai_targets
+proxychat_call_target = {
+	is_country_type = default
+	OR = {
+		proxychat_is_player = yes
+		has_global_flag = proxychat_test_ai_targets
+	}
+}

@@ -1,0 +1,32 @@
+# Proxy Chat: hooks that feed game.log for the external watcher.
+# Vanilla merges these event lists with its own, nothing is overridden.
+
+# This = country which established the communications
+# From = country which communications were established with
+# Always fires, even for establish_communications_no_message
+on_post_communications_established_always_fire = {
+	events = {
+		proxychat.1
+	}
+}
+
+# No scope
+on_monthly_pulse = {
+	events = {
+		proxychat.10
+	}
+}
+
+# This = federation leader, From = joining member. Also fires when a federation is formed.
+on_join_federation = {
+	events = {
+		proxychat.11
+	}
+}
+
+# This = federation leader, From = leaving member
+on_leave_federation = {
+	events = {
+		proxychat.11
+	}
+}

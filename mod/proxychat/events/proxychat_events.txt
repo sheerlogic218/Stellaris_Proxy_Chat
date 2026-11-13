@@ -1,0 +1,188 @@
+namespace = proxychat
+
+# Communications established between two player countries.
+# This = establishing country, From = other country. Fires once per pair.
+# PROXYCHAT|COMMS|<game key>|<id>|<id>
+country_event = {
+	id = proxychat.1
+	hide_window = yes
+	is_triggered_only = yes
+
+	trigger = {
+		proxychat_is_player = yes
+		from = { proxychat_is_player = yes }
+	}
+
+	immediate = {
+		proxychat_ensure_id = yes
+		from = { proxychat_ensure_id = yes }
+		if = {
+			limit = {
+				has_country_flag = proxychat_has_id
+				from = { has_country_flag = proxychat_has_id }
+			}
+			proxychat_log_id = yes
+			from = { proxychat_log_id = yes }
+			log = "PROXYCHAT|COMMS|[Root.proxychat_ka]-[Root.proxychat_kb]-[Root.proxychat_kc]|[Root.proxychat_id]|[From.proxychat_id]"
+		}
+	}
+}
+
+# Monthly sweep: the authoritative list of player countries, player pairs with
+# communications, Galactic Community members and federations. The body and the
+# lines it logs are in proxychat_sweep (common/scripted_effects/proxychat_scripted_effects.txt).
+# Run by hand from the console with: event proxychat.10
+event = {
+	id = proxychat.10
+	hide_window = yes
+	is_triggered_only = yes
+
+	trigger = {
+		exists = event_target:global_event_country
+	}
+
+	immediate = {
+		proxychat_sweep = yes
+	}
+}
+
+# A country joined or left a federation (on_join_federation / on_leave_federation,
+# This = federation leader). Federations formed, joined, left or dissolved get
+# their voice channel sorted out straight away instead of at the next monthly
+# sweep: proxychat.12 sweeps a day later, once the change has settled.
+country_event = {
+	id = proxychat.11
+	hide_window = yes
+	is_triggered_only = yes
+
+	immediate = {
+		country_event = { id = proxychat.12 days = 1 }
+	}
+}
+
+country_event = {
+	id = proxychat.12
+	hide_window = yes
+	is_triggered_only = yes
+
+	immediate = {
+		proxychat_sweep = yes
+	}
+}
+
+# ---- Subspace Channel menu (from the diplomacy screen button) -----------
+# Fired by action_harm_relation's on_accept on the player who clicked it.
+# event_target:proxychat_target = the empire whose diplomacy screen it was.
+#
+# PROXYCHAT|JOIN|<game key>|<caller id>|<target id>
+# PROXYCHAT|FED_JOIN|<game key>|<caller id>|<federation id>|<M or A>|<federation name>
+#   (target's federation, offered to its members and to empires with association status)
+country_event = {
+	id = proxychat.20
+	title = proxychat.20.name
+	desc = proxychat.20.desc
+	picture = GFX_evt_communication_event
+	is_triggered_only = yes
+
+	option = {
+		name = proxychat.20.join
+		hidden_effect = {
+			log = "PROXYCHAT|JOIN|[Root.proxychat_ka]-[Root.proxychat_kb]-[Root.proxychat_kc]|[Root.proxychat_id]|[proxychat_target.proxychat_id]"
+		}
+	}
+	option = {
+		name = proxychat.20.federation
+		trigger = {
+			event_target:proxychat_target = { has_federation = yes }
+			OR = {
+				is_in_federation_with = event_target:proxychat_target
+				has_association_status = event_target:proxychat_target
+				event_target:proxychat_target = { has_association_status = root }
+			}
+		}
+		hidden_effect = {
+			event_target:proxychat_target = {
+				federation = { proxychat_ensure_fed_id = yes }
+			}
+			if = {
+				limit = { is_in_federation_with = event_target:proxychat_target }
+				log = "PROXYCHAT|FED_JOIN|[Root.proxychat_ka]-[Root.proxychat_kb]-[Root.proxychat_kc]|[Root.proxychat_id]|[proxychat_target.proxychat_fid]|M|[proxychat_target.Federation.GetName]"
+			}
+			else = {
+				log = "PROXYCHAT|FED_JOIN|[Root.proxychat_ka]-[Root.proxychat_kb]-[Root.proxychat_kc]|[Root.proxychat_id]|[proxychat_target.proxychat_fid]|A|[proxychat_target.Federation.GetName]"
+			}
+		}
+	}
+	option = {
+		name = proxychat.20.hail
+		hidden_effect = {
+			save_event_target_as = proxychat_caller
+			event_target:proxychat_target = { country_event = { id = proxychat.21 } }
+		}
+	}
+	option = {
+		name = proxychat.20.cancel
+	}
+}
+
+# Hail popup for the empire being hailed.
+# Root = hailed empire, event_target:proxychat_caller = the caller.
+#
+# PROXYCHAT|HAIL|<game key>|<caller id>|<target id>|<H or A>|<caller name>|<target name>
+# PROXYCHAT|HAIL_DECLINED|<game key>|<caller id>|<target id>
+country_event = {
+	id = proxychat.21
+	title = proxychat.21.name
+	desc = proxychat.21.desc
+	picture = GFX_evt_communication_event
+	is_triggered_only = yes
+
+	option = {
+		name = proxychat.21.accept
+		hidden_effect = {
+			if = {
+				limit = { is_ai = no }
+				log = "PROXYCHAT|HAIL|[Root.proxychat_ka]-[Root.proxychat_kb]-[Root.proxychat_kc]|[proxychat_caller.proxychat_id]|[Root.proxychat_id]|H|[proxychat_caller.GetName]|[Root.GetName]"
+			}
+			else = {
+				log = "PROXYCHAT|HAIL|[Root.proxychat_ka]-[Root.proxychat_kb]-[Root.proxychat_kc]|[proxychat_caller.proxychat_id]|[Root.proxychat_id]|A|[proxychat_caller.GetName]|[Root.GetName]"
+			}
+			save_event_target_as = proxychat_target
+			event_target:proxychat_caller = { country_event = { id = proxychat.22 } }
+		}
+		ai_chance = { factor = 1 }   # TEST: AI always accepts
+	}
+	option = {
+		name = proxychat.21.decline
+		hidden_effect = {
+			log = "PROXYCHAT|HAIL_DECLINED|[Root.proxychat_ka]-[Root.proxychat_kb]-[Root.proxychat_kc]|[proxychat_caller.proxychat_id]|[Root.proxychat_id]"
+			save_event_target_as = proxychat_target
+			event_target:proxychat_caller = { country_event = { id = proxychat.23 } }
+		}
+		ai_chance = { factor = 0 }
+	}
+}
+
+# Caller's notification: hail accepted
+country_event = {
+	id = proxychat.22
+	title = proxychat.22.name
+	desc = proxychat.22.desc
+	picture = GFX_evt_communication_event
+	is_triggered_only = yes
+
+	option = { name = proxychat.ok }
+}
+
+# Caller's notification: hail declined
+country_event = {
+	id = proxychat.23
+	title = proxychat.23.name
+	desc = proxychat.23.desc
+	picture = GFX_evt_communication_event
+	is_triggered_only = yes
+
+	option = { name = proxychat.ok }
+}
+
+# ---- Voice Chat menu: proxychat.40 is in proxychat_menu_generated.txt ----
