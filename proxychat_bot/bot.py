@@ -63,6 +63,9 @@ REFUSED_SERVER_PERMS = ("administrator", "manage_guild", "manage_roles", "manage
 
 
 class ProxyChatBot(discord.Client):
+    # The central server (ServerBot) sets this: commands for every guild, slots from its database
+    server_mode = False
+
     def __init__(self, cfg, store=None, source=None, *, slots=None, guilds=None, strict_permissions=False):
         """Local mode: cfg and store make the one slot. Server mode passes slots and guilds."""
         # Default intents only (guilds, voice states): no privileged intents needed.
@@ -126,6 +129,12 @@ class ProxyChatBot(discord.Client):
             return None
         return next((s for s in self.slots.values() if s.owns(channel)), None)
 
+    def extra_admin_commands(self, admin):
+        """Add mode-specific subcommands to /proxychat (server mode adds slot and role management)."""
+
+    def no_slot_text(self):
+        return NO_SLOT
+
     async def setup_hook(self):
         for guild_id in sorted(self.guild_configs):
             guild = discord.Object(guild_id)
@@ -161,6 +170,8 @@ class ProxyChatBot(discord.Client):
             changes = []
             for event in events:
                 changes += slot.processor.feed(event.date, event.record)
+            if slot.store.current is not None and not batch.replay:
+                slot.store.current.seen_at = time.time()
             resumed = False
             if slot.store.paused and not batch.replay:
                 # The game is live again after /proxychat session end
@@ -1071,7 +1082,7 @@ def register_commands(bot):
             pass
 
     async def no_slot(interaction):
-        await interaction.response.send_message(NO_SLOT, ephemeral=True)
+        await interaction.response.send_message(bot.no_slot_text(), ephemeral=True)
 
     async def empire_autocomplete(interaction, current):
         slot = bot.slot_for(interaction)
@@ -1177,7 +1188,7 @@ def register_commands(bot):
         bot,
         name="proxychat",
         description="Proxy chat admin commands",
-        default_permissions=None if any_roles else discord.Permissions(manage_guild=True),
+        default_permissions=None if any_roles or bot.server_mode else discord.Permissions(manage_guild=True),
         guild_only=True,
     )
 
@@ -1320,4 +1331,5 @@ def register_commands(bot):
 
     admin.add_command(claims)
     admin.add_command(session)
+    bot.extra_admin_commands(admin)
     tree.add_command(admin)

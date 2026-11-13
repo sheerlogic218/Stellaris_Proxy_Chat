@@ -1,0 +1,13 @@
+# Central server bot settings. Copy to server.toml (mounted at /config/server.toml in
+# the container). Nothing secret goes in here.
+
+[server]
+# The SQLite database shared by the bot, the API and the admin CLI
+db_path = "/data/proxychat.db"
+# The Discord bot token, as a secret file (or set PROXYCHAT_DISCORD_TOKEN instead)
+token_file = "/run/secrets/discord_token"
+# Your Discord user id: the bot DMs you when an unapproved server adds it, and
+# about refusals and failures. 0 = no alerts.
+owner_user_id = 0
+# How often the bot checks for events relays sent in (seconds)
+poll_seconds = 0.5

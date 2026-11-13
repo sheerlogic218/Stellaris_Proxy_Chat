@@ -175,7 +175,7 @@ your Windows username.
   - IDs are ints from 0 to 1,000,000;
   - keys match `^\d+-\d+-\d+$`;
   - dates match `^\d+\.\d+\.\d+$`;
-  - names are at most 64 characters, NFC-normalised, with control characters, zero-width characters and newlines stripped.
+  - names are at most 100 characters (Discord's channel-name limit), NFC-normalised, with control characters, zero-width characters and newlines stripped.
 
   It rejects the whole batch if any record fails.
 - **Duplicates:** `launch` plus `seq` let the server ignore records it has already seen after a relay restart, which replays the log from the top.

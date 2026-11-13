@@ -10,3 +10,9 @@ state*.json
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Central server: local config and databases
+server.toml
+*.db
+*.db-wal
+*.db-shm

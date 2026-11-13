@@ -52,6 +52,8 @@ class Game:
     federations: dict[int, Federation] = field(default_factory=dict)   # federation id -> Federation
     fed_channels: dict[int, int] = field(default_factory=dict)        # federation id -> discord channel id
     last_date: str | None = None
+    # Unix time the game last sent anything (set by the bot), for retention
+    seen_at: float | None = None
 
     def contacts(self, country):
         return {other for p in self.pairs if country in p for other in p if other != country}
@@ -70,6 +72,7 @@ class Game:
             "federations": [f.to_json() for f in self.federations.values()],
             "fed_channels": {str(f): ch for f, ch in self.fed_channels.items()},
             "last_date": self.last_date,
+            "seen_at": self.seen_at,
         }
 
     @classmethod
@@ -84,6 +87,7 @@ class Game:
             federations={f["id"]: Federation.from_json(f) for f in d.get("federations", [])},
             fed_channels={int(f): ch for f, ch in d.get("fed_channels", {}).items()},
             last_date=d.get("last_date"),
+            seen_at=d.get("seen_at"),
         )
 
 
