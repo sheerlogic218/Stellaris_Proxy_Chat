@@ -7,7 +7,10 @@ Nothing here is trusted blindly by the bot: queued events are validated again
 before they're applied (see queue.py).
 """
 
+import base64
+import hashlib
 import json
+import re
 import secrets
 import sqlite3
 import time
@@ -401,3 +404,126 @@ def backup(conn, path):
         conn.backup(target)
     finally:
         target.close()
+
+
+# ---- pairing ----------------------------------------------------------------
+
+
+PAIRING_SECONDS = 600
+# 12 base32 characters = 60 bits, shown as XXXX-XXXX-XXXX
+_CODE = re.compile(r"[A-Z2-7]{12}")
+
+
+def code_hash(code):
+    return hashlib.sha256(code.encode("ascii")).hexdigest()
+
+
+def normalize_code(text):
+    """The canonical form of a typed pairing code, or None if it can't be one."""
+    if not isinstance(text, str) or len(text) > 40:
+        return None
+    code = text.replace("-", "").replace(" ", "").upper()
+    return code if _CODE.fullmatch(code) else None
+
+
+def new_pairing_code(conn, guild_id, slot_id, created_by, at=None):
+    """A one-off code for pairing a relay to this slot. Only its hash is stored."""
+    at = now() if at is None else at
+    code = base64.b32encode(secrets.token_bytes(8)).decode("ascii")[:12]
+    with transaction(conn):
+        conn.execute("INSERT INTO pairing_codes (code_hash, guild_id, slot_id, created_by, expires_at) "
+                     "VALUES (?, ?, ?, ?, ?)", (code_hash(code), guild_id, slot_id, created_by, at + PAIRING_SECONDS))
+        audit(conn, f"discord:{created_by}", "pairing code", guild_id, f"slot={slot_id}")
+    return f"{code[:4]}-{code[4:8]}-{code[8:]}"
+
+
+def new_key_id():
+    return "k_" + secrets.token_hex(8)
+
+
+def redeem_pairing_code(conn, code, public_key, label, at=None):
+    """Swap a valid, unused code for a relay key. Returns (key_id, slot row) or None.
+
+    All in one transaction, so a code can never be used twice.
+    """
+    at = now() if at is None else at
+    with transaction(conn):
+        row = conn.execute(
+            "SELECT p.*, g.status FROM pairing_codes p JOIN guilds g USING (guild_id) WHERE p.code_hash = ?",
+            (code_hash(code),)).fetchone()
+        if row is None or row["used_at"] is not None or row["expires_at"] < at or row["status"] != "approved":
+            return None
+        slot = conn.execute("SELECT * FROM slots WHERE slot_id = ?", (row["slot_id"],)).fetchone()
+        if slot is None:
+            return None
+        conn.execute("UPDATE pairing_codes SET used_at = ? WHERE code_hash = ?", (at, row["code_hash"]))
+        key_id = new_key_id()
+        conn.execute("INSERT INTO relays (key_id, guild_id, slot_id, public_key, label, paired_by, created_at) "
+                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                     (key_id, row["guild_id"], row["slot_id"], public_key, label, row["created_by"], at))
+        audit(conn, f"discord:{row['created_by']}", "relay paired", row["guild_id"],
+              f"{label} key={key_id} slot={slot['label']}")
+        bump_config(conn)   # lets the bot notice and tell the guild
+        return key_id, slot
+
+
+def active_relay(conn, key_id):
+    """An unrevoked relay key in an approved guild, or None."""
+    if not isinstance(key_id, str) or len(key_id) > 40:
+        return None
+    return conn.execute(
+        "SELECT r.* FROM relays r JOIN guilds g USING (guild_id) "
+        "WHERE r.key_id = ? AND r.revoked_at IS NULL AND g.status = 'approved'", (key_id,)).fetchone()
+
+
+# ---- leases: one relay feeds a slot at a time ---------------------------------
+
+LEASE_SECONDS = 90
+
+
+def take_lease(conn, slot_id, key_id, at=None):
+    """Take or renew the slot's lease. False if another relay holds it. Call inside a transaction."""
+    at = now() if at is None else at
+    row = conn.execute("SELECT * FROM leases WHERE slot_id = ?", (slot_id,)).fetchone()
+    if row is not None and row["key_id"] != key_id and row["expires_at"] >= at:
+        return False
+    conn.execute("INSERT INTO leases (slot_id, key_id, expires_at) VALUES (?, ?, ?) "
+                 "ON CONFLICT(slot_id) DO UPDATE SET key_id = excluded.key_id, expires_at = excluded.expires_at",
+                 (slot_id, key_id, at + LEASE_SECONDS))
+    if row is None or row["key_id"] != key_id:
+        audit(conn, f"relay:{key_id}", "lease taken", None, f"slot={slot_id}")
+    return True
+
+
+def release_lease(conn, slot_id, key_id=None, actor=None):
+    """Drop the lease (only if key_id holds it, when given). Returns True if one was dropped."""
+    sql, args = "DELETE FROM leases WHERE slot_id = ?", [slot_id]
+    if key_id is not None:
+        sql += " AND key_id = ?"
+        args.append(key_id)
+    dropped = conn.execute(sql, args).rowcount
+    if dropped:
+        audit(conn, actor or f"relay:{key_id}", "lease released", None, f"slot={slot_id}")
+    return bool(dropped)
+
+
+def last_seq(conn, slot_id, launch):
+    row = conn.execute("SELECT last_seq FROM launch_seq WHERE slot_id = ? AND launch = ?", (slot_id, launch)).fetchone()
+    return row["last_seq"] if row else -1
+
+
+def set_last_seq(conn, slot_id, launch, seq, at=None):
+    conn.execute("INSERT INTO launch_seq (slot_id, launch, last_seq, updated_at) VALUES (?, ?, ?, ?) "
+                 "ON CONFLICT(slot_id, launch) DO UPDATE SET last_seq = excluded.last_seq, "
+                 "updated_at = excluded.updated_at", (slot_id, launch, seq, now() if at is None else at))
+
+
+def note_auth_failure(conn, at=None):
+    """Count failed authentications per hour, for the operator alert."""
+    at = now() if at is None else at
+    hour = at // 3600
+    stored = get_setting(conn, "auth_failures", "")
+    h, _, n = stored.partition(":")
+    count = int(n) + 1 if h == str(hour) and n.isdigit() else 1
+    set_setting(conn, "auth_failures", f"{hour}:{count}")
+    return count

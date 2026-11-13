@@ -1,5 +1,8 @@
-# Central server bot settings. Copy to server.toml (mounted at /config/server.toml in
-# the container). Nothing secret goes in here.
+# Central server settings, read by both the bot and the API. Copy to server.toml
+# (mounted at /config/server.toml in the containers). Nothing secret goes in here.
+#
+# Values starting with CHANGE_ME are placeholders: the server treats them as unset
+# and warns at startup. Each one is explained in docs/DEPLOYMENT_PLACEHOLDERS.md.
 
 [server]
 # The SQLite database shared by the bot, the API and the admin CLI
@@ -7,7 +10,20 @@ db_path = "/data/proxychat.db"
 # The Discord bot token, as a secret file (or set PROXYCHAT_DISCORD_TOKEN instead)
 token_file = "/run/secrets/discord_token"
 # Your Discord user id: the bot DMs you when an unapproved server adds it, and
-# about refusals and failures. 0 = no alerts.
-owner_user_id = 0
+# about refusals and failures.
+owner_user_id = "CHANGE_ME_OWNER_USER_ID"
+# The public HTTPS address relays connect to (your Tailscale Funnel name). It's
+# shown to admins by /proxychat host. Until it's set, /proxychat host refuses.
+public_url = "CHANGE_ME_PUBLIC_URL"
 # How often the bot checks for events relays sent in (seconds)
 poll_seconds = 0.5
+
+[api]
+# Where the API listens inside its container. The Tailscale sidecar forwards
+# Funnel traffic here, so these must match deploy/ts-serve.json (M6).
+listen_host = "0.0.0.0"
+listen_port = 8080
+# Health check, always bound to 127.0.0.1 inside the container
+health_port = 8081
+# Relays older than this are refused at pairing and told to update
+min_relay_version = "0.1.0"

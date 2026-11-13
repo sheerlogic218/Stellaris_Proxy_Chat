@@ -96,7 +96,7 @@ def from_dict(d):
     if not isinstance(d, dict):
         raise RecordError("not an object")
     t = d.get("t")
-    if t not in SPEC:
+    if not isinstance(t, str) or t not in SPEC:   # an object or list here would be unhashable
         raise RecordError("unknown record type")
     cls, fields = SPEC[t]
     if set(d) != {"t", "date", *fields}:

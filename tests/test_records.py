@@ -67,7 +67,7 @@ def test_rejects_anything_unexpected(change):
         from_dict(d)
 
 
-@pytest.mark.parametrize("bad", [None, [], "COMMS", 5, {"t": None}])
+@pytest.mark.parametrize("bad", [None, [], "COMMS", 5, {"t": None}, {"t": {"a": 1}}, {"t": ["COMMS"]}])
 def test_rejects_non_objects(bad):
     with pytest.raises(RecordError):
         from_dict(bad)

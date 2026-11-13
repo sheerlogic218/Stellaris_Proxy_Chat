@@ -36,6 +36,11 @@ RETENTION_SECONDS = 3600.0
 # Old campaigns in a slot (not the current one) are forgotten after this long without events
 STALE_GAME_SECONDS = 30 * 86400
 
+def relay_pair_command(public_url, code):
+    """What a host runs to pair. The relay program and its name come in M5."""
+    return f'python -m proxychat_relay pair {public_url} {code} --label "Your name"'
+
+
 NO_SLOT_SERVER = ("Run this in a channel inside a Proxy Chat category, so the bot knows which game you mean. "
                   "Admins: set one up with `/proxychat slot add`.")
 
@@ -50,6 +55,8 @@ class ServerBot(ProxyChatBot):
         super().__init__(scfg, source=source or QueueSource(conn, scfg.poll_seconds),
                          slots=slots, guilds=guilds, strict_permissions=True)
         self._config_version = db.config_version(conn)
+        for name in scfg.unset:
+            log.warning("server.toml: %s is still a placeholder (see docs/DEPLOYMENT_PLACEHOLDERS.md)", name)
 
     # ---- config from the database ----------------------------------------
 
@@ -312,5 +319,63 @@ class ServerBot(ProxyChatBot):
             text = ", ".join(f"<@&{r}>" for r in roles) or "none (only server managers)"
             await interaction.response.send_message(f"Admin roles: {text}", ephemeral=True)
 
+        # ---- relays: pairing and control ----
+
+        @admin.command(name="host", description="Get a one-time code to connect a game host's relay to this slot")
+        async def host(interaction: discord.Interaction):
+            slot = bot.slot_for(interaction)
+            if slot is None:
+                return await interaction.response.send_message(bot.no_slot_text(), ephemeral=True)
+            if not bot.scfg.public_url:
+                return await interaction.response.send_message(
+                    "Relays can't connect yet: the operator hasn't set the server's address (`public_url`).",
+                    ephemeral=True)
+            code = db.new_pairing_code(bot.conn, slot.guild_id, slot.id, interaction.user.id)
+            await interaction.response.send_message(
+                f"Pairing code for **{slot.settings.label}**: `{code}`\n"
+                f"It works once, for {db.PAIRING_SECONDS // 60} minutes. Only you can see this message.\n"
+                f"On the PC that hosts the game, run:\n"
+                f"```\n{relay_pair_command(bot.scfg.public_url, code)}\n```"
+                "Revoke a relay any time with `/proxychat relay revoke`.", ephemeral=True)
+
+        relay_group = AdminGroup(bot, name="relay", description="The game hosts' relays")
+
+        async def relay_autocomplete(interaction, current):
+            return [app_commands.Choice(name=f"{clean_name(r['label'])} ({r['slot_label']})"[:100], value=r["key_id"])
+                    for r in db.relays(bot.conn, interaction.guild_id)
+                    if r["revoked_at"] is None and current.lower() in r["label"].lower()][:25]
+
+        @relay_group.command(name="list", description="Show this server's relays and who is hosting each slot")
+        async def relay_list(interaction: discord.Interaction):
+            rows = [r for r in db.relays(bot.conn, interaction.guild_id) if r["revoked_at"] is None]
+            leases = {s.id: db.lease_of(bot.conn, s.id) for s in bot.guild_slots(interaction.guild_id)}
+            lines = [f"Relays: {len(rows)}"]
+            for r in rows:
+                lease = leases.get(r["slot_id"])
+                hosting = " — **hosting now**" if lease and lease["key_id"] == r["key_id"] else ""
+                seen = f"<t:{r['last_seen']}:R>" if r["last_seen"] else "never"
+                lines.append(f"• **{clean_name(r['label'])}** for {clean_name(r['slot_label'])}, "
+                             f"paired by <@{r['paired_by']}>, last seen {seen}{hosting}")
+            await interaction.response.send_message("\n".join(lines)[:2000], ephemeral=True)
+
+        @relay_group.command(name="revoke", description="Stop a relay: it has to pair again to send anything")
+        @app_commands.describe(relay="Which relay")
+        @app_commands.autocomplete(relay=relay_autocomplete)
+        async def relay_revoke(interaction: discord.Interaction, relay: str):
+            if not db.revoke_relay(bot.conn, relay, actor(interaction), guild_id=interaction.guild_id):
+                return await interaction.response.send_message("No active relay by that name here.", ephemeral=True)
+            await interaction.response.send_message("Revoked. That relay can't send anything any more.", ephemeral=True)
+
+        @relay_group.command(name="release", description="Free this slot for another relay (if its host crashed)")
+        async def relay_release(interaction: discord.Interaction):
+            slot = bot.slot_for(interaction)
+            if slot is None:
+                return await interaction.response.send_message(bot.no_slot_text(), ephemeral=True)
+            with db.transaction(bot.conn):
+                dropped = db.release_lease(bot.conn, slot.id, actor=actor(interaction))
+            text = "Released: another relay can host now." if dropped else "Nobody is hosting this slot."
+            await interaction.response.send_message(text, ephemeral=True)
+
         admin.add_command(slot_group)
         admin.add_command(roles_group)
+        admin.add_command(relay_group)
