@@ -98,7 +98,7 @@ def test_file_backend_keeps_the_existing_state_json_format(tmp_path):
     store.save()
 
     assert isinstance(store.backend, FileBackend) and store.path == path
-    assert set(json.loads(path.read_text(encoding="utf-8"))) == {"current_key", "owned", "commands_channel", "games"}
+    assert set(json.loads(path.read_text(encoding="utf-8"))) == {"current_key", "owned", "commands_channel", "paused", "games"}
     assert Store.load(path).commands_channel == 5
 
 
@@ -119,7 +119,7 @@ def make_bot(tmp_path, source=None):
     bot = ProxyChatBot(cfg, Store(cfg.state_path), source)
     announced = []
 
-    async def announce(changes):
+    async def announce(changes, slot=None):
         announced.extend(changes)
 
     bot.announce = announce

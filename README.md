@@ -84,6 +84,16 @@ Background: [FINDINGS.md](FINDINGS.md) (design) and [TESTING.md](TESTING.md) (in
   empires or corrections), `/proxychat unassign`, `/proxychat resync`, and
   `/proxychat cleanup` (on its own it lists exactly what it would delete; `confirm:True` does it). Cleanup deletes every empire, Galactic Community,
   federation and call channel and clears all claims, but keeps the known empires and contacts.
+- Between sessions (admins; each previews first, `confirm:True` does it):
+  - `/proxychat session end` removes the game's voice channels (each one now, or once
+    it's empty) and ignores in-game requests until the game sends its next event.
+    Claims are kept, so nobody has to `/claim` again; add `clear_claims:True` to clear
+    them too. The commands channel stays. Restarting the bot replays the old
+    `game.log`, which doesn't count as the game being played again.
+  - `/proxychat claims clear` clears every claim in the current game. Embassy channels
+    go once they're empty.
+- Empire, ruler and federation names are cleaned before they reach Discord: no
+  `@`, `#`, `<`, `>`, markdown or invisible characters. The bot's messages never ping anyone.
 - The bot keeps a **#bot-commands** text channel in its category (name set by
   `commands_channel`, `""` for none). It survives clean-ups, and its permissions
   follow the category's.

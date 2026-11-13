@@ -121,6 +121,9 @@ class Store:
         self.owned: set[int] = set()
         # The bot's text channel for commands: survives clean-ups
         self.commands_channel: int = 0
+        # Set by /proxychat session end: the game's voice channels are removed and in-game
+        # requests ignored until the game sends something live again. Claims are kept.
+        self.paused: bool = False
 
     @property
     def current(self):
@@ -152,6 +155,7 @@ class Store:
         self.games = {g["key"]: Game.from_json(g) for g in d.get("games", [])}
         self.current_key = d.get("current_key")
         self.commands_channel = d.get("commands_channel", 0)
+        self.paused = bool(d.get("paused", False))
         if "owned" in d:
             self.owned = set(d["owned"])
         else:
@@ -163,6 +167,7 @@ class Store:
             "current_key": self.current_key,
             "owned": sorted(self.owned),
             "commands_channel": self.commands_channel,
+            "paused": self.paused,
             "games": [g.to_json() for g in self.games.values()],
         }
 

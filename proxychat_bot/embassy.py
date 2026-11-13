@@ -9,7 +9,8 @@ hidden from C while A is in it.
 
 from dataclasses import dataclass
 
-MAX_CHANNEL_NAME = 100
+from proxychat_core.names import MAX_NAME as MAX_CHANNEL_NAME
+from proxychat_core.names import clean_name
 
 
 @dataclass(frozen=True)
@@ -20,8 +21,7 @@ class Embassy:
 
 
 def channel_name(country_id, country):
-    name = country.name.strip() if country else ""
-    return (name or f"Empire {country_id}")[:MAX_CHANNEL_NAME]
+    return clean_name(country.name if country else "", f"Empire {country_id}", MAX_CHANNEL_NAME)
 
 
 def desired_embassies(game):
@@ -83,7 +83,7 @@ class FederationRoom:
 
 
 def federation_name(fed):
-    return (fed.name.strip() or f"Federation {fed.id}")[:MAX_CHANNEL_NAME]
+    return clean_name(fed.name, f"Federation {fed.id}", MAX_CHANNEL_NAME)
 
 
 def desired_federations(game):

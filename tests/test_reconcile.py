@@ -1,6 +1,7 @@
 """Runs ProxyChatBot.reconcile against an in-memory fake guild (no Discord connection)."""
 
 import asyncio
+import dataclasses
 import itertools
 from pathlib import Path
 
@@ -154,6 +155,12 @@ def make_bot(guild, tmp_path):
     return bot, game
 
 
+def set_slot(bot, **settings):
+    """Change the (local) slot's settings, as editing config.toml and restarting would."""
+    slot = bot.only_slot()
+    slot.settings = dataclasses.replace(slot.settings, **settings)
+
+
 def allowed(channel):
     return {t.id for t, ow in channel.overwrites.items() if ow.connect}
 
@@ -211,7 +218,9 @@ def test_commands_registered(tmp_path):
     names = {c.name for c in bot.tree.get_commands()}
     assert names == {"claim", "unclaim", "contacts", "empires", "proxychat"}
     admin = bot.tree.get_command("proxychat")
-    assert {c.name for c in admin.commands} == {"status", "assign", "unassign", "resync", "cleanup"}
+    assert {c.name for c in admin.commands} == {"status", "assign", "unassign", "resync", "cleanup", "claims", "session"}
+    assert {c.name for c in admin.get_command("claims").commands} == {"clear"}
+    assert {c.name for c in admin.get_command("session").commands} == {"end"}
 
 
 def abc_setup(tmp_path):
@@ -350,7 +359,7 @@ def test_empty_call_is_deleted_after_grace(tmp_path, monkeypatch):
     monkeypatch.setattr(botmod, "CALL_GRACE_SECONDS", 0.0)
     asyncio.run(bot.reconcile())
     assert name not in voice_channels(guild)
-    assert bot._calls == {}
+    assert bot.only_slot().calls == {}
 
 
 def test_call_needs_both_empires_claimed(tmp_path):
@@ -417,7 +426,7 @@ def stellaris_server(tmp_path):
     lfg = guild._add(FakeChannel(guild, "LFG", discord.ChannelType.voice, category_id=cat.id))
     text = guild._add(FakeChannel(guild, "stellaris-chat", discord.ChannelType.text, category_id=cat.id))
     bot, game = make_bot(guild, tmp_path)
-    bot.cfg.category_id = cat.id
+    set_slot(bot, category_id=cat.id)
     game.pairs = {frozenset((1, 2)), frozenset((2, 3))}
     return guild, bot, game, cat, (lounge, lfg, text)
 
@@ -481,7 +490,7 @@ def test_call_goes_below_embassies(tmp_path):
 
 def test_missing_category_id_creates_nothing(tmp_path):
     guild, bot, game, cat, _ = stellaris_server(tmp_path)
-    bot.cfg.category_id = 424242                      # typo in config
+    set_slot(bot, category_id=424242)                      # typo in config
     game.claims = {101: 1}
     asyncio.run(bot.reconcile())
     assert len(guild.categories) == 1
@@ -567,7 +576,7 @@ def test_permission_check_warns_about_server_wide_rights(tmp_path, caplog):
     assert "Missing on category" in text and "move_members" in text
 
     caplog.clear()
-    bot._category_id = None
+    bot.only_slot().category_id = None
     guild.me.guild_permissions = discord.Permissions.none()
     cat.permissions_for = lambda m: discord.Permissions(**{p: True for p in __import__("proxychat_bot.bot", fromlist=["x"]).CATEGORY_PERMS})
     with caplog.at_level(logging.INFO, logger="proxychat"):
@@ -604,7 +613,7 @@ def test_commands_channel_recreated_if_deleted(tmp_path):
 
 def test_commands_channel_can_be_turned_off(tmp_path):
     guild, bot, game, cat, _ = stellaris_server(tmp_path)
-    bot.cfg.commands_channel = ""
+    set_slot(bot, commands_channel="")
     asyncio.run(bot.reconcile())
     assert "bot-commands" not in text_channels(guild)
 
@@ -760,7 +769,7 @@ def test_cleanup_refuses_other_server_and_categories(tmp_path):
 def test_cleanup_cancelled_when_category_missing(tmp_path):
     guild, bot, game, cat, protected = full_server(tmp_path)
     claims = dict(game.claims)
-    bot.cfg.category_id = 999999                        # category gone / wrong id
+    set_slot(bot, category_id=999999)                        # category gone / wrong id
     assert asyncio.run(bot.cleanup()) is None
     assert guild.deleted == [] and game.claims == claims
 
@@ -862,7 +871,7 @@ def test_occupied_forgotten_channel_waits_until_empty(tmp_path):
     in_lobby(guild, 101, 102)
     asyncio.run(bot.handle_call(K, 1, 2))
     call = voice_channels(guild)["Call: Rocks ↔ Tzynn Empire"]
-    bot._calls.clear()                                    # as after a restart
+    bot.only_slot().calls.clear()                                    # as after a restart
     asyncio.run(bot.reconcile())
     assert call.id in guild.channels                      # people in it: kept
     for m in list(call.members):
@@ -985,5 +994,5 @@ def test_cleanup_preview_empty_and_truncated(tmp_path):
 
 def test_cleanup_preview_when_category_missing(tmp_path):
     guild, bot, game, cat, _ = stellaris_server(tmp_path)
-    bot.cfg.category_id = 999999
+    set_slot(bot, category_id=999999)
     assert asyncio.run(bot.cleanup_plan()) is None
