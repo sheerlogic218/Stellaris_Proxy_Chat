@@ -118,6 +118,13 @@ class ServerBot(ProxyChatBot):
             log.warning("Trial mode: commands registered on guild %s only", self.dev_guild)
         else:
             await self.tree.sync()   # global: every approved guild gets the commands
+            # Local mode registered its commands per guild; those copies would show up
+            # next to the global ones, so clear them in the guilds this bot serves
+            for guild_id in sorted(self.guild_configs):
+                try:
+                    await self.tree.sync(guild=discord.Object(guild_id))   # nothing registered there: clears it
+                except discord.HTTPException:
+                    log.warning("Couldn't clear old per-guild commands in %s", guild_id)
         asyncio.create_task(self.watch_events())
         asyncio.create_task(self.reconcile_loop())
         asyncio.create_task(self.upkeep_loop())

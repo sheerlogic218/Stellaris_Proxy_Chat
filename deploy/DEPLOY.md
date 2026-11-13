@@ -7,7 +7,7 @@
 - `S` below means the start of Docker's remapped user range (step 2). The containers' user 10001 is host user **`S + 10001`**.
 - All commands run on the server, from `/opt/proxychat` unless they say otherwise.
 
-> ⚠️ **One bot at a time.** The server uses the same Discord token as your local bot. Never run both at once. The switch-over for your main server is M7.
+> ⚠️ **One bot at a time.** The server uses the same Discord token as your local bot. Never run both at once. Step 8 moves your existing servers over (this is milestone M7), and step 9 is the switch.
 
 ---
 
@@ -97,20 +97,68 @@ sudo iptables -L PROXYCHAT-EGRESS -n
 
 The last command lists DROP rules for the private ranges. If your network uses anything unusual, copy `firewall.env.example` to `firewall.env` and set `EXTRA_BLOCKED`.
 
-## 7. Start it
+## 7. Build the images
 
 ```bash
 cd /opt/proxychat/deploy
-sudo docker compose up -d --build
+sudo docker compose build
+```
+
+## 8. Register your servers BEFORE the first start
+
+> ⚠️ **Do this before the bot ever starts.** When the bot starts, it leaves every Discord server that isn't approved here. It's the same Discord app as your existing bot, so skipping this step makes it walk out of your servers.
+
+These commands use one-off containers, `docker compose run --rm`, so nothing is running yet.
+
+1. **Copy your local state files onto the server** (from your PC: scp, a USB stick, anything). Put them in `deploy/data/import/`:
+   ```bash
+   sudo mkdir -p data/import
+   # e.g. from your PC: scp state.stellaris-server.json state.json you@server:/tmp/   then:
+   sudo mv /tmp/state.stellaris-server.json /tmp/state.json data/import/
+   sudo chown -R "$((S + 10001)):$((S + 10001))" data/import
+   ```
+2. **Approve each server and import its state.** The ids come from your local `config.*.toml` files:
+   ```bash
+   alias pcrun='sudo docker compose run --rm --no-deps bot python -m proxychat_server.admin_cli'
+   pcrun guild approve <MAIN_GUILD_ID> --note "main server" --admin-role <ADMIN_ROLE_ID>
+   pcrun import-state <MAIN_GUILD_ID> <MAIN_CATEGORY_ID> /data/import/state.stellaris-server.json --label "Main" --commands-channel ""
+   pcrun guild approve <TEST_GUILD_ID> --note "test server"
+   pcrun import-state <TEST_GUILD_ID> <TEST_CATEGORY_ID> /data/import/state.json --label "Test"
+   pcrun status
+   ```
+   - `--commands-channel ""` matches a local `commands_channel = ""`, so the bot won't create a `#bot-commands` channel there.
+   - `--admin-role` matches the local `admin_role_ids`.
+   - Leave both options out where the local config uses the defaults.
+3. **Delete the copies.** They contain players' Discord ids, and the database now has everything:
+   ```bash
+   sudo rm -r data/import
+   ```
+
+The bot recognises the channels it already made and keeps everyone's claims. Keep the original files on your PC as a rollback: `admin_cli export-state` writes a slot back into that format.
+
+## 9. Start it
+
+> ⚠️ **Stop the local bot for good** before this, on every PC that has ever run it (`start_bot*.bat`). Two copies with one token fight over the channels.
+
+```bash
+cd /opt/proxychat/deploy
+sudo docker compose up -d
 sudo docker compose ps
 sudo docker compose logs -f
 ```
 
-Expect a warning that `public_url` is still a placeholder, and that `owner_user_id` is if you left it. The bot logs in, and the `ts` container logs in to Tailscale.
+What to expect in the logs:
+- a warning that `public_url` is a placeholder, and `owner_user_id` too if you left it;
+- the bot logging in and serving your slots;
+- the `ts` container logging in to Tailscale.
+
+If a slot is refused for dangerous permissions, the log says which ones. Untick them on the bot's role in that Discord server, as in `SERVER_SETUP.md`.
 
 The auth key is single-use, so it's spent now. You can also revoke it in the console; the node stays logged in through its saved state.
 
-## 8. The public address
+**About the slash commands:** they're now registered globally. The old per-server copies are cleared at startup, but Discord apps can take a few minutes to show the change.
+
+## 10. The public address
 
 ```bash
 sudo docker compose exec ts tailscale funnel status
@@ -122,7 +170,9 @@ This shows `https://proxychat.<tailnet>.ts.net`. Put it in `config/server.toml` 
 sudo docker compose restart bot
 ```
 
-## 9. Self-tests
+Volunteers can now pair: an admin runs `/proxychat host` in the server, and the host runs `setup_relay.bat` and then the command it shows.
+
+## 11. Self-tests
 
 From a machine that is **not** on your tailnet, such as a phone hotspot or a PC with Tailscale off:
 
@@ -138,7 +188,7 @@ sudo deploy/selftest-inside.sh <your-pc's-tailnet-name>
 
 Both should end with `0 failed`. Re-run them after any change to these files.
 
-## 10. Backups
+## 11b. Backups
 
 1. **On your PC,** not the server: `age-keygen -o proxychat-backup.key`. Keep that file safe and offline; it's the only way to read backups. Copy the `age1…` public key it prints.
 2. **On the server,** in `deploy/backup.env`, set `AGE_RECIPIENT` **(placeholder)** and optionally `BACKUP_TARGET` **(placeholder)**.
@@ -149,15 +199,13 @@ Both should end with `0 failed`. Re-run them after any change to these files.
    ```
 4. **Test a restore once,** on your PC: `age -d -i proxychat-backup.key proxychat-<date>.db.age > restored.db`. Then open it with `sqlite3 restored.db ".tables"`.
 
-## 11. Approve servers
-
-Approving is only possible here, on the command line:
+## 11c. More servers later
 
 ```bash
 sudo docker compose exec bot python -m proxychat_server.admin_cli guild approve <GUILD_ID> --note "who it is"
 ```
 
-Then the owner invites the bot and runs `/proxychat slot add`. Moving your main server over, with its channels and claims, is milestone M7: `admin_cli import-state`.
+Then their owner invites the bot and runs `/proxychat slot add`.
 
 ## 12. Keeping it updated
 

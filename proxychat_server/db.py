@@ -256,7 +256,8 @@ def new_slot_id():
     return "s_" + secrets.token_hex(6)
 
 
-def add_slot(conn, guild_id, category_id, label, actor, state=None):
+def add_slot(conn, guild_id, category_id, label, actor, state=None, commands_channel="bot-commands",
+             announce_channel_id=0):
     """Create a slot in an approved guild. Raises SlotError on any rule broken."""
     with transaction(conn):
         row = guild(conn, guild_id)
@@ -269,8 +270,9 @@ def add_slot(conn, guild_id, category_id, label, actor, state=None):
                         (guild_id, category_id, label)).fetchone():
             raise SlotError("that category or label is already used by a slot")
         slot_id = new_slot_id()
-        conn.execute("INSERT INTO slots (slot_id, guild_id, category_id, label, created_at) VALUES (?, ?, ?, ?, ?)",
-                     (slot_id, guild_id, category_id, label, now()))
+        conn.execute("INSERT INTO slots (slot_id, guild_id, category_id, label, commands_channel, "
+                     "announce_channel_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                     (slot_id, guild_id, category_id, label, commands_channel, announce_channel_id, now()))
         if state is not None:
             conn.execute("INSERT INTO slot_state (slot_id, state, updated_at) VALUES (?, ?, ?)",
                          (slot_id, json.dumps(state), now()))

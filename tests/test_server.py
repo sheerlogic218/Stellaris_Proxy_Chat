@@ -477,3 +477,34 @@ def test_a_refused_slot_alerts_once(conn):
     run(bot.reconcile(slot))
     run(bot.reconcile(slot))
     assert len(sent) == 1 and "administrator" in sent[0]
+
+
+def test_cli_carries_local_settings_over(tmp_path):
+    local = Store(tmp_path / "state.json")
+    local.save()
+    assert cli(tmp_path, "guild", "approve", "5", "--admin-role", "777", "--admin-role", "778")[0] == 0
+    code, _ = cli(tmp_path, "import-state", "5", "100", str(local.path), "--label", "Main",
+                  "--commands-channel", "", "--announce-channel", "42")
+    assert code == 0
+    conn = db.connect(tmp_path / "proxychat.db")
+    row = db.slots_of(conn, 5)[0]
+    assert (row["commands_channel"], row["announce_channel_id"]) == ("", 42)
+    assert db.admin_roles(db.guild(conn, 5)) == (777, 778)
+    bot = ServerBot(ServerConfig(Path("unused"), "token"), conn)
+    slot = next(iter(bot.slots.values()))
+    assert slot.settings.commands_channel == "" and bot.guild_settings(5).admin_role_ids == (777, 778)
+
+
+def test_server_mode_clears_old_per_guild_commands(conn):
+    db.approve_guild(conn, G, "cli")
+    bot = ServerBot(ServerConfig(Path("unused"), "token"), conn)
+    synced = []
+
+    async def sync(guild=None):
+        synced.append(guild.id if guild else "global")
+        return []
+
+    bot.tree.sync = sync
+    bot.watch_events = bot.reconcile_loop = bot.upkeep_loop = lambda: asyncio.sleep(0)
+    run(bot.setup_hook())
+    assert synced == ["global", G]

@@ -7,7 +7,7 @@ for it, so a hijacked Discord account can't let a server in. Every command is
 written to the audit log as actor "cli". The running bot picks changes up within
 seconds.
 
-  guild approve <guild_id> [--max-slots N] [--note TEXT]
+  guild approve <guild_id> [--max-slots N] [--note TEXT] [--admin-role ID ...]
   guild list
   guild freeze|unfreeze|remove <guild_id>
   slot list [--guild ID]
@@ -18,7 +18,7 @@ seconds.
   audit [-n N]
   status
   backup <path>
-  import-state <guild_id> <category_id> <state.json> [--label TEXT]
+  import-state <guild_id> <category_id> <state.json> [--label TEXT] [--commands-channel NAME] [--announce-channel ID]
   export-state <slot_id> <state.json>
   set max-guilds <N>
   alert <text>              DM the operator through the bot (for scripts)
@@ -60,7 +60,10 @@ def cmd_guild(conn, args, out):
         except db.CapReached as e:
             out(f"Refused: {e}. Remove a guild first, or raise the cap with `set max-guilds`.")
             return 1
-        out(f"Approved {args.guild_id} (up to {args.max_slots} slot(s)). They can invite the bot now.")
+        if args.admin_role:
+            db.set_admin_roles(conn, args.guild_id, args.admin_role, ACTOR)
+        roles = f", admin role(s) {', '.join(map(str, args.admin_role))}" if args.admin_role else ""
+        out(f"Approved {args.guild_id} (up to {args.max_slots} slot(s){roles}). They can invite the bot now.")
     elif args.action == "list":
         rows = conn.execute("SELECT g.*, (SELECT COUNT(*) FROM slots s WHERE s.guild_id = g.guild_id) AS n "
                             "FROM guilds g ORDER BY created_at").fetchall()
@@ -163,7 +166,8 @@ def cmd_import_state(conn, args, out):
         out(f"Can't read {path}: {e}")
         return 1
     try:
-        slot_id = db.add_slot(conn, args.guild_id, args.category_id, args.label, ACTOR, state=state)
+        slot_id = db.add_slot(conn, args.guild_id, args.category_id, args.label, ACTOR, state=state,
+                              commands_channel=args.commands_channel, announce_channel_id=args.announce_channel)
     except db.SlotError as e:
         out(f"Can't import: {e}.")
         return 1
@@ -223,6 +227,8 @@ def build_parser():
     g.add_argument("guild_id", type=int, nargs="?")
     g.add_argument("--max-slots", type=int, default=db.DEFAULT_MAX_SLOTS, choices=range(1, 11), metavar="1-10")
     g.add_argument("--note")
+    g.add_argument("--admin-role", type=int, action="append", default=[],
+                   help="a role (besides Manage Server) that may use /proxychat; repeat for more")
     g.set_defaults(func=cmd_guild)
 
     s = sub.add_parser("slot")
@@ -255,6 +261,9 @@ def build_parser():
     i.add_argument("category_id", type=int)
     i.add_argument("state")
     i.add_argument("--label", default="Game 1")
+    i.add_argument("--commands-channel", default="bot-commands",
+                   help='name of the text channel the bot keeps for commands; "" for none (local commands_channel)')
+    i.add_argument("--announce-channel", type=int, default=0, help="local announce_channel_id, if set")
     i.set_defaults(func=cmd_import_state)
 
     e = sub.add_parser("export-state")
