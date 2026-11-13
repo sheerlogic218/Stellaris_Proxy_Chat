@@ -1,0 +1,30 @@
+// A complete tailnet policy for a NEW tailnet that has nothing else in it yet.
+// Tailscale admin console -> Access controls -> replace everything with this -> Save.
+// (Already have a policy with your own rules? Merge tailscale-acl-snippet.jsonc instead.)
+{
+  // Only tailnet admins can make devices with this tag (the sidecar's auth key)
+  "tagOwners": {
+    "tag:proxychat": ["autogroup:admin"]
+  },
+
+  // Funnel (public HTTPS) is allowed for the proxychat node only
+  "nodeAttrs": [
+    { "target": ["tag:proxychat"], "attr": ["funnel"] }
+  ],
+
+  // Your own devices (when you add some) can reach each other. Tagged devices
+  // aren't "yours", so nothing can reach the proxychat node, and since no rule has
+  // it as a source, it can't reach anything either.
+  "grants": [
+    { "src": ["autogroup:member"], "dst": ["autogroup:self"], "ip": ["*"] }
+  ],
+
+  "ssh": [
+    {
+      "action": "check",
+      "src": ["autogroup:member"],
+      "dst": ["autogroup:self"],
+      "users": ["autogroup:nonroot", "root"]
+    }
+  ]
+}

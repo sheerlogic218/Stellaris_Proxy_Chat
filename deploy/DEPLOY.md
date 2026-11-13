@@ -48,7 +48,9 @@ Answer **Yes**. Manage the server over your LAN or Tailscale SSH only. Use SSH k
 
 In the [Tailscale admin console](https://login.tailscale.com/admin):
 
-1. **Access controls:** merge in [tailscale-acl-snippet.jsonc](tailscale-acl-snippet.jsonc). **First** replace the default allow-all rule with explicit rules for your own devices, if it's still there.
+1. **Access controls:**
+   - **New tailnet, nothing else in it:** replace the whole policy with [tailscale-policy-fresh.jsonc](tailscale-policy-fresh.jsonc).
+   - **Otherwise:** merge in [tailscale-acl-snippet.jsonc](tailscale-acl-snippet.jsonc). **First** replace the default allow-all rule with explicit rules for your own devices, if it's still there.
 2. **DNS → HTTPS Certificates:** enable. Funnel needs it.
 3. **Settings → Keys → Generate auth key:** set it **single-use**, **pre-approved**, with tag **`tag:proxychat`**. This is the **(placeholder)** Tailscale auth key.
 
