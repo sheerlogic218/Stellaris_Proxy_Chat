@@ -32,6 +32,13 @@ sudo systemctl restart docker
 grep dockremap /etc/subuid
 ```
 
+> **Already running other containers** (CasaOS, Crafty and so on)? Check with
+> `sudo docker ps -a --format '{{.Names}}' | wc -l`. If it's above 0, run **only the `git clone` line** above:
+> skip `daemon.json` and the restart, and use **`S=0`** below. Remapping is machine-wide, and it would hide
+> your existing containers and could break their files. Proxy Chat's API and bot still run as an
+> unprivileged user (10001). The Tailscale sidecar runs as root inside its container, but with every
+> capability dropped, a read-only filesystem and `no-new-privileges`.
+
 The last line prints `dockremap:S:65536`. Note `S`, for example `165536`. Root inside a container is then an ordinary, unprivileged user on the host.
 
 If you already have containers, they won't be visible after remapping (they live under a new directory). That's expected; this server should only run Proxy Chat's.
