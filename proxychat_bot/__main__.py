@@ -10,23 +10,21 @@ import sys
 import time
 from pathlib import Path
 
+from proxychat_core.source import LocalLogSource
+from proxychat_core.state import Processor, Store
+
 from .config import TOKEN_ENV, find_config, load_config
-from .logwatch import LogTailer
-from .protocol import parse_line
-from .state import Processor, Store
 
 
 def dry_run(cfg):
     store = Store()  # in memory: dry runs never touch the bot's state.json
     processor = Processor(store)
-    tailer = LogTailer(cfg.log_path)
-    print(f"Watching {cfg.log_path} (Ctrl+C to stop)")
+    source = LocalLogSource(cfg.log_path, cfg.poll_seconds)
+    print(f"Watching {source.describe()} (Ctrl+C to stop)")
     while True:
-        for line in tailer.poll():
-            parsed = parse_line(line)
-            if not parsed:
-                continue
-            date, record = parsed
+        batch = source.poll()
+        for event in batch.events if batch else []:
+            date, record = event.date, event.record
             print(f"[{date or '?'}] {record}")
             for change in processor.feed(date, record):
                 print(f"    -> {change}")

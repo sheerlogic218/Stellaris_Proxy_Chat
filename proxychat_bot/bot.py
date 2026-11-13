@@ -20,11 +20,12 @@ import time
 import discord
 from discord import app_commands
 
+from proxychat_core.protocol import FederationJoin, GalcomJoin, Home, Join
+from proxychat_core.source import LocalLogSource
+from proxychat_core.state import (GALCOM_CHANNEL, CountriesChanged, FederationsChanged, GalcomChanged, GameSwitched,
+                                  Hailed, PairsChanged, Processor, Requested)
+
 from .embassy import GALCOM_NAME, desired_embassies, desired_federations, galcom_users, resolve_occupancy
-from .logwatch import LogTailer
-from .protocol import FederationJoin, GalcomJoin, Home, Join, parse_line
-from .state import (GALCOM_CHANNEL, CountriesChanged, FederationsChanged, GalcomChanged, GameSwitched, Hailed,
-                    PairsChanged, Processor, Requested)
 
 log = logging.getLogger("proxychat")
 
@@ -52,13 +53,14 @@ RISKY_SERVER_PERMS = ("administrator", "manage_guild", "manage_channels", "manag
 
 
 class ProxyChatBot(discord.Client):
-    def __init__(self, cfg, store):
+    def __init__(self, cfg, store, source=None):
         # Default intents only (guilds, voice states): no privileged intents needed
         super().__init__(intents=discord.Intents.default())
         self.cfg = cfg
         self.store = store
         self.processor = Processor(store)
-        self.tailer = LogTailer(cfg.log_path)
+        # Where game events come from: game.log on this PC unless told otherwise
+        self.source = source or LocalLogSource(cfg.log_path, cfg.poll_seconds)
         self.tree = app_commands.CommandTree(self)
         self.dirty = asyncio.Event()
         self._members = {}
@@ -75,35 +77,32 @@ class ProxyChatBot(discord.Client):
         guild = discord.Object(self.cfg.guild_id)
         self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
-        asyncio.create_task(self.watch_log())
+        asyncio.create_task(self.watch_events())
         asyncio.create_task(self.reconcile_loop())
 
     async def on_ready(self):
-        log.info("Logged in as %s, watching %s", self.user, self.cfg.log_path)
+        log.info("Logged in as %s, watching %s", self.user, self.source.describe())
         self.dirty.set()
 
     # ---- game.log -------------------------------------------------------
 
-    async def watch_log(self):
-        first = True
-        while True:
+    async def watch_events(self):
+        async for batch in self.source.batches():
             try:
-                lines = await asyncio.to_thread(self.tailer.poll)
-                changes = []
-                for line in lines:
-                    parsed = parse_line(line)
-                    if parsed:
-                        changes += self.processor.feed(*parsed)
-                if changes:
-                    self.store.save()
-                    self.dirty.set()
-                    # The first poll replays the whole log; don't re-announce it
-                    if not first:
-                        await self.announce(changes)
-                first = False
+                await self.apply_batch(batch)
             except Exception:
-                log.exception("Error reading game.log")
-            await asyncio.sleep(self.cfg.poll_seconds)
+                log.exception("Error applying game events")
+
+    async def apply_batch(self, batch):
+        changes = []
+        for event in batch.events:
+            changes += self.processor.feed(event.date, event.record)
+        if changes:
+            self.store.save()
+            self.dirty.set()
+            # Replayed records (the existing log on startup) aren't announced again
+            if not batch.replay:
+                await self.announce(changes)
 
     async def announce(self, changes):
         for change in changes:

@@ -87,11 +87,32 @@ class Game:
         )
 
 
-class Store:
-    """All known games plus which one is currently being played. Saved as JSON."""
+class FileBackend:
+    """Keeps a Store as a JSON file (local mode). Writes go through a temp file."""
 
-    def __init__(self, path=None):
-        self.path = Path(path) if path else None
+    def __init__(self, path):
+        self.path = Path(path)
+
+    def read(self):
+        if not self.path.exists():
+            return None
+        return json.loads(self.path.read_text(encoding="utf-8"))
+
+    def write(self, data):
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        os.replace(tmp, self.path)
+
+
+class Store:
+    """All known games plus which one is currently being played.
+
+    Where it's kept is up to the backend: anything with read() -> dict | None and
+    write(dict). Without one (and without a path) the store lives in memory only.
+    """
+
+    def __init__(self, path=None, backend=None):
+        self.backend = backend or (FileBackend(path) if path else None)
         self.games: dict[str, Game] = {}
         self.current_key: str | None = None
         # Every Discord channel the bot created and hasn't deleted yet. The bot only
@@ -110,33 +131,44 @@ class Store:
             self.games[key] = Game(key)
         return self.games[key]
 
+    @property
+    def path(self):
+        """The JSON file, for a file-backed store (else None)."""
+        return getattr(self.backend, "path", None)
+
     @classmethod
     def load(cls, path):
-        store = cls(path)
-        if store.path.exists():
-            d = json.loads(store.path.read_text(encoding="utf-8"))
-            store.games = {g["key"]: Game.from_json(g) for g in d.get("games", [])}
-            store.current_key = d.get("current_key")
-            store.commands_channel = d.get("commands_channel", 0)
-            if "owned" in d:
-                store.owned = set(d["owned"])
-            else:
-                # Older state files: the embassy channels were the bot's
-                store.owned = {ch for g in store.games.values() for ch in g.channels.values()}
+        return cls.from_backend(FileBackend(path))
+
+    @classmethod
+    def from_backend(cls, backend):
+        store = cls(backend=backend)
+        d = backend.read()
+        if d:
+            store.load_json(d)
         return store
 
-    def save(self):
-        if not self.path:
-            return
-        data = {
+    def load_json(self, d):
+        self.games = {g["key"]: Game.from_json(g) for g in d.get("games", [])}
+        self.current_key = d.get("current_key")
+        self.commands_channel = d.get("commands_channel", 0)
+        if "owned" in d:
+            self.owned = set(d["owned"])
+        else:
+            # Older state files: the embassy channels were the bot's
+            self.owned = {ch for g in self.games.values() for ch in g.channels.values()}
+
+    def to_json(self):
+        return {
             "current_key": self.current_key,
             "owned": sorted(self.owned),
             "commands_channel": self.commands_channel,
             "games": [g.to_json() for g in self.games.values()],
         }
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        os.replace(tmp, self.path)
+
+    def save(self):
+        if self.backend:
+            self.backend.write(self.to_json())
 
 
 @dataclass(frozen=True)

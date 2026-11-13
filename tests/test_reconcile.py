@@ -8,7 +8,7 @@ import discord
 
 from proxychat_bot.bot import ProxyChatBot
 from proxychat_bot.config import Config
-from proxychat_bot.state import Country, Store
+from proxychat_core.state import Country, Store
 
 K = "123-456-789"
 _ids = itertools.count(1000)
@@ -490,7 +490,7 @@ def test_missing_category_id_creates_nothing(tmp_path):
 
 def test_old_state_files_adopt_embassy_channels(tmp_path):
     import json
-    from proxychat_bot.state import Store as S
+    from proxychat_core.state import Store as S
     path = tmp_path / "state.json"
     path.write_text(json.dumps({"current_key": K, "games": [
         {"key": K, "channels": {"1": 111, "0": 222}},
@@ -876,7 +876,7 @@ def test_occupied_forgotten_channel_waits_until_empty(tmp_path):
 
 def fed_setup(tmp_path):
     """Rocks (101) and Tzynn (102) form the Union; Glebsig (103) has association status."""
-    from proxychat_bot.state import Federation
+    from proxychat_core.state import Federation
     guild, bot, game, _ = abc_setup(tmp_path)
     game.federations = {4: Federation(4, "Union", {1, 2}, {3})}
     asyncio.run(bot.reconcile())
@@ -907,7 +907,7 @@ def test_federation_channel_for_members_and_associates(tmp_path):
 
 def test_federation_channels_sit_between_galcom_and_embassies(tmp_path):
     guild, bot, game, cat, _ = stellaris_server(tmp_path)
-    from proxychat_bot.state import Federation
+    from proxychat_core.state import Federation
     game.claims = {101: 1, 102: 2, 103: 3}
     game.galcom = {1}
     game.federations = {4: Federation(4, "Zeta Pact", {3}), 5: Federation(5, "Alpha League", {1})}
@@ -924,7 +924,7 @@ def test_federation_join_moves_associate_in(tmp_path):
 
 
 def test_federation_join_without_channel_explains(tmp_path):
-    from proxychat_bot.state import Federation
+    from proxychat_core.state import Federation
     guild, bot, game, _ = abc_setup(tmp_path)
     game.claims = {103: 3}
     game.federations = {4: Federation(4, "Union", {1, 2}, {3})}   # no member has claimed
@@ -944,7 +944,7 @@ def test_cleanup_removes_federation_channels(tmp_path):
 
 def test_cleanup_preview_lists_exactly_what_gets_deleted(tmp_path):
     from proxychat_bot.bot import cleanup_preview
-    from proxychat_bot.state import Federation
+    from proxychat_core.state import Federation
     guild, bot, game, cat, protected = full_server(tmp_path)
     game.federations = {4: Federation(4, "Union", {1, 2})}
     asyncio.run(bot.reconcile())

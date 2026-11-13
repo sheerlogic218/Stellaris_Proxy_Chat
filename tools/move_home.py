@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from proxychat_bot.config import find_config, load_config  # noqa: E402
-from proxychat_bot.state import Store  # noqa: E402
+from proxychat_core.state import Store  # noqa: E402
 
 API = "https://discord.com/api/v10"
 
