@@ -21,6 +21,7 @@ seconds.
   import-state <guild_id> <category_id> <state.json> [--label TEXT]
   export-state <slot_id> <state.json>
   set max-guilds <N>
+  alert <text>              DM the operator through the bot (for scripts)
 """
 
 import argparse
@@ -190,6 +191,17 @@ def cmd_export_state(conn, args, out):
     return 0
 
 
+def cmd_alert(conn, args, out):
+    """Send the operator a DM through the bot (used by server scripts, e.g. a failed backup)."""
+    text = " ".join(args.text).strip()[:500]
+    if not text:
+        out("Say what happened.")
+        return 1
+    db.audit(conn, ACTOR, "alert", None, text)
+    out("Queued: the bot sends it within a minute.")
+    return 0
+
+
 def cmd_set(conn, args, out):
     if args.value < 1:
         out("Must be at least 1.")
@@ -249,6 +261,10 @@ def build_parser():
     e.add_argument("slot_id")
     e.add_argument("path")
     e.set_defaults(func=cmd_export_state)
+
+    al = sub.add_parser("alert")
+    al.add_argument("text", nargs="+")
+    al.set_defaults(func=cmd_alert)
 
     st = sub.add_parser("set")
     st.add_argument("name", choices=["max-guilds"])

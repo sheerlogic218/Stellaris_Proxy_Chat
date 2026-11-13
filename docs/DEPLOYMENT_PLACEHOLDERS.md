@@ -75,19 +75,22 @@ There are no placeholders in files: everything comes from these arguments.
 | Relay label | How the host shows up in `/proxychat relay list` | The host's name | host | ✅ |
 | `game.log` path | Only if Stellaris logs somewhere unusual | `Documents\Paradox Interactive\Stellaris\logs\game.log` | host | ✅ (with the default filled in) |
 
-## Coming in M6: home server deployment (Pop!_OS)
+## Home server deployment (Pop!_OS)
 
-This doesn't exist in the code yet. It's listed so the installer can plan for it.
+Step by step in [deploy/DEPLOY.md](../deploy/DEPLOY.md). Each file below is a copy of a committed
+`*.example` file, and is ignored by git.
 
-
-| Value | What it is | How to find it | Who | Ask? |
-|---|---|---|---|---|
-| Tailscale auth key | Single use, pre-authorised, tagged `tag:proxychat` | Tailscale admin console → Settings → Keys | operator | ✅ (secret: straight to a file, deleted after first start) |
-| Tailnet name | Part of `public_url` | Tailscale admin console → DNS | operator | ⚙️ |
-| Tailscale ACL changes | Replace the default allow-all rule, add `tag:proxychat` and the `funnel` attribute | Admin console → Access controls. The snippet comes in `deploy/`. | operator | ⚙️ (manual) |
-| Docker network subnets | Fixed subnets for the firewall rules | Defaults will be suggested, for example `172.30.1.0/24` and `172.30.2.0/24`. They must not clash with your LAN. | operator | ✅ |
-| LAN ranges to block | Your home network's private ranges | Your router's settings, or `ip route` on the server | operator | ✅ |
-| Backup target | Where nightly encrypted backups are copied | A path on your PC or a NAS, reached over Tailscale | operator | ✅ |
-| `age` public key | Encrypts backups. The private key stays off the server. | `age-keygen` on your PC, then copy the `age1…` line | operator | ✅ |
-| Image digests | Pinned `python:…-slim` and `tailscale/tailscale` images | Docker Hub, or `docker pull` then `docker inspect` | operator | ⚙️ |
-| Data folder ownership | `./data` owned by the remapped container user | Computed from `/etc/subuid` (`dockremap`) | operator | ⚙️ (an installer can work it out) |
+| Placeholder or value | File | What it is | How to find it | Who | Ask? |
+|---|---|---|---|---|---|
+| `CHANGE_ME_PYTHON_DIGEST` | `deploy/.env` (`PYTHON_IMAGE`) | Pins the Python base image | `docker pull python:3.14-slim && docker inspect --format '{{index .RepoDigests 0}}' python:3.14-slim` | operator | ⚙️ (an installer can run it) |
+| `CHANGE_ME_TAILSCALE_DIGEST` | `deploy/.env` (`TS_IMAGE`) | Pins the Tailscale image | The same command for `tailscale/tailscale:stable` | operator | ⚙️ |
+| `TS_HOSTNAME` | `deploy/.env` | The tailnet machine name, so the address is `https://<this>.<tailnet>.ts.net` | Your choice. Default `proxychat`. | operator | ✅ |
+| `EDGE_SUBNET`, `TS_OUT_SUBNET`, `BOT_OUT_SUBNET` | `deploy/.env` (and the two `*_OUT` ones in `deploy/firewall.env` if changed) | Container networks the firewall targets | Defaults `172.30.0-2.0/24`. They must not overlap your LAN (`ip route`). | operator | ✅ |
+| `EXTRA_BLOCKED` | `deploy/firewall.env` | Extra ranges the containers must not reach. All private ranges are already blocked. | Usually empty | operator | ✅ |
+| Discord bot token | `deploy/secrets/discord_token` (mode 0400, owner `S+10001`) | The bot's login | Developer Portal → **Bot** → **Reset Token** | operator | ✅ (secret: no echo, straight to the file) |
+| Tailscale auth key | `deploy/secrets/ts_authkey` (mode 0400, owner `S`) | Logs the sidecar in once. Single-use, pre-approved, tagged `tag:proxychat`. | Tailscale admin console → Settings → Keys | operator | ✅ (secret) |
+| `S` | used in commands | Start of Docker's remapped user range | `grep dockremap /etc/subuid` after step 2 of DEPLOY.md | operator | ⚙️ (an installer can read it) |
+| Tailscale ACL changes | admin console | Replace allow-all, add `tag:proxychat` and the `funnel` attribute | [deploy/tailscale-acl-snippet.jsonc](../deploy/tailscale-acl-snippet.jsonc) | operator | ⚙️ (manual) |
+| `CHANGE_ME_AGE_RECIPIENT` | `deploy/backup.env` | Encrypts backups. The private key stays on your PC. | `age-keygen` on your PC, then copy the `age1…` line | operator | ✅ |
+| `BACKUP_TARGET` | `deploy/backup.env` | Where encrypted backups are copied | For example `you@your-pc:/backups/proxychat/`, reached over SSH. Empty means keep them on the server only. | operator | ✅ |
+| Install path | `deploy/systemd/*.service` | Where the repo is cloned | `/opt/proxychat`. Edit the units if you use another path. | operator | ✅ |

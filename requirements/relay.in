@@ -1,0 +1,3 @@
+# The relay on game hosts' Windows PCs (proxychat_relay). Lock: requirements/relay.txt
+cryptography==50.0.2
+keyring==25.7.0

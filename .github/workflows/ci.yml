@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install
+        run: pip install -r requirements/dev.in
+      - name: Tests (including the security suite)
+        run: python -m pytest -q
+      - name: Known vulnerabilities in the pinned packages
+        run: pip-audit --strict
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the API image
+        run: docker build -f deploy/Dockerfile --target api -t proxychat-api .
+      - name: Build the bot image
+        run: docker build -f deploy/Dockerfile --target bot -t proxychat-bot .
+      - name: Check the images
+        run: |
+          docker run --rm --entrypoint python proxychat-api -c "import proxychat_server.api"
+          docker run --rm --entrypoint python proxychat-bot -c "import proxychat_server.serverbot"
+          # Each image has only its own code, and no pip
+          ! docker run --rm --entrypoint python proxychat-api -c "import proxychat_server.serverbot"
+          ! docker run --rm --entrypoint python proxychat-bot -c "import proxychat_server.api"
+          ! docker run --rm --entrypoint python proxychat-api -m pip --version
+          test "$(docker run --rm --entrypoint id proxychat-api -u)" = 10001

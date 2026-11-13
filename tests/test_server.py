@@ -424,3 +424,56 @@ def test_trial_mode_never_leaves_a_server(conn):
     run(bot.on_guild_join(stranger))
     run(bot.on_guild_remove(LeavingGuild(98)))
     assert not stranger.left and db.guild(conn, 98) is None
+
+
+# ---- operator alerts ----------------------------------------------------------
+
+def alert_bot(conn):
+    bot, _ = server_bot(conn)
+    sent = []
+
+    async def alert(text):
+        sent.append(text)
+
+    bot.alert = alert
+    return bot, sent
+
+
+def test_alerts_report_new_audit_events_once(conn):
+    db.approve_guild(conn, G, "cli")                     # before the bot first looks: not replayed
+    bot, sent = alert_bot(conn)
+    run(bot.check_alerts())
+    assert sent == []
+    db.set_guild_status(conn, G, "frozen", "cli")
+    db.audit(conn, "cli", "pairing code", G)            # not an alerting action
+    admin_cli.cmd_alert(conn, type("A", (), {"text": ["backup", "failed"]})(), lambda *_: None)
+    run(bot.check_alerts())
+    assert len(sent) == 1 and "guild frozen" in sent[0] and "backup failed" in sent[0]
+    assert "pairing code" not in sent[0]
+    run(bot.check_alerts())
+    assert len(sent) == 1
+
+
+def test_alerts_on_bursts_of_failed_sign_ins_once_per_hour(conn):
+    bot, sent = alert_bot(conn)
+    run(bot.check_alerts())
+    for _ in range(21):
+        db.note_auth_failure(conn, at=7200)
+    run(bot.check_alerts())
+    run(bot.check_alerts())
+    assert len(sent) == 1 and "21 failed" in sent[0]
+
+
+def test_a_refused_slot_alerts_once(conn):
+    db.approve_guild(conn, G, "cli")
+    bot, sent = alert_bot(conn)
+    guild = FakeGuild([101])
+    cat = guild._add(FakeChannel(guild, "Proxy Chat", discord.ChannelType.category))
+    db.add_slot(conn, G, cat.id, "Game 1", "cli")
+    bot.reload()
+    bot.get_guild = lambda gid: guild
+    slot = next(iter(bot.slots.values()))
+    guild.me.guild_permissions = discord.Permissions(administrator=True)
+    run(bot.reconcile(slot))
+    run(bot.reconcile(slot))
+    assert len(sent) == 1 and "administrator" in sent[0]

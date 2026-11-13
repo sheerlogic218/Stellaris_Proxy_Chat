@@ -1,0 +1,3 @@
+# The relay-facing API container (proxychat_server.api). Lock: requirements/api.txt
+aiohttp==3.14.5
+cryptography==50.0.2

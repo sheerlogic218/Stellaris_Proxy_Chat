@@ -19,3 +19,12 @@ server.toml
 
 # Local trials of the central server (database, config)
 trial/
+
+# Central server deployment: secrets, data and filled-in settings stay on the server
+deploy/secrets/
+deploy/data/
+deploy/backups/
+deploy/config/
+deploy/.env
+deploy/firewall.env
+deploy/backup.env

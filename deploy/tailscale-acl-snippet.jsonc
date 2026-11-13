@@ -1,0 +1,25 @@
+// Add these to your tailnet policy (Tailscale admin console -> Access controls).
+// Merge with what's there; don't paste over your whole policy.
+//
+// FIRST: if your policy still has the default allow-all rule
+//     {"action": "accept", "src": ["*"], "dst": ["*:*"]}
+// (or the grants equivalent), replace it with explicit rules for your own devices.
+// Otherwise the proxychat node could reach everything on your tailnet.
+{
+  // Only admins can create nodes with this tag (e.g. the auth key for the sidecar)
+  "tagOwners": {
+    "tag:proxychat": ["autogroup:admin"]
+  },
+
+  // Let only this tag use Funnel (public HTTPS on 443)
+  "nodeAttrs": [
+    { "target": ["tag:proxychat"], "attr": ["funnel"] }
+  ],
+
+  // Deliberately NOTHING mentions tag:proxychat as a source or a destination:
+  // the node can't reach your devices, and your devices don't need to reach it
+  // (you manage the server over SSH or your LAN, never through this node).
+  "acls": [
+    // ...your existing explicit rules, none of them with "*" sources reaching tag:proxychat...
+  ]
+}

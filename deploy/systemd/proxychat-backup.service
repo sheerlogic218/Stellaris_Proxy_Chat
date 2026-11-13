@@ -1,0 +1,8 @@
+[Unit]
+Description=Proxy Chat encrypted database backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/proxychat/deploy/backup.sh

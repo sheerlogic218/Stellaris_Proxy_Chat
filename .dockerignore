@@ -1,0 +1,9 @@
+# Only code and lock files go into the build context; never data, secrets or local state
+*
+!proxychat_core/
+!proxychat_bot/
+!proxychat_server/
+!requirements/
+!deploy/healthcheck_bot.py
+**/__pycache__
+**/*.pyc

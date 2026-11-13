@@ -30,6 +30,13 @@ from .queue import QueueSource
 log = logging.getLogger("proxychat")
 
 RELOAD_SECONDS = 5.0
+ALERT_SECONDS = 60.0
+# More failed authentications than this in an hour gets the operator a DM
+AUTH_FAILURE_ALERT = 20
+# Audit-log actions the operator hears about (written by the CLI, the API or the bot)
+ALERT_ACTIONS = {"relay paired", "relay revoke", "relay revoke-all", "guild approve", "guild frozen",
+                 "guild removed", "guild approved", "slot add", "slot remove", "maintenance on",
+                 "maintenance off", "alert"}
 HEARTBEAT_SECONDS = 30.0
 GUILD_CHECK_SECONDS = 600.0
 RETENTION_SECONDS = 3600.0
@@ -122,7 +129,7 @@ class ServerBot(ProxyChatBot):
 
     async def upkeep_loop(self):
         await self.wait_until_ready()
-        last = {"heartbeat": 0.0, "guilds": time.monotonic(), "retention": 0.0}
+        last = {"heartbeat": 0.0, "guilds": time.monotonic(), "retention": 0.0, "alerts": 0.0}
         while True:
             now = time.monotonic()
             try:
@@ -137,6 +144,9 @@ class ServerBot(ProxyChatBot):
                 if now - last["retention"] >= RETENTION_SECONDS:
                     self.run_retention()
                     last["retention"] = now
+                if now - last["alerts"] >= ALERT_SECONDS:
+                    await self.check_alerts()
+                    last["alerts"] = now
             except Exception:
                 log.exception("Upkeep failed")
             await asyncio.sleep(RELOAD_SECONDS)
@@ -163,6 +173,34 @@ class ServerBot(ProxyChatBot):
         if forgotten:
             db.audit(self.conn, "retention", "forget games", None, str(forgotten))
         log.info("Retention: %s, %d old game(s) forgotten", counts, forgotten)
+
+    async def check_alerts(self):
+        """DM the operator about new audit events worth knowing, and bursts of failed sign-ins."""
+        last_seen = db.get_setting(self.conn, "alerted_audit_id")
+        newest = self.conn.execute("SELECT COALESCE(MAX(id), 0) FROM audit_log").fetchone()[0]
+        if last_seen is None:
+            db.set_setting(self.conn, "alerted_audit_id", newest)   # first run: don't replay history
+        else:
+            rows = self.conn.execute("SELECT * FROM audit_log WHERE id > ? ORDER BY id", (int(last_seen),)).fetchall()
+            lines = [f"• {r['action']}: {r['details'] or '-'}" + (f" (guild `{r['guild_id']}`)" if r["guild_id"] else "")
+                     + f" by {r['actor']}" for r in rows if r["action"] in ALERT_ACTIONS]
+            if lines:
+                more = [f"…and {len(lines) - 20} more"] if len(lines) > 20 else []
+                await self.alert("\n".join(["Recent changes:", *lines[:20], *more]))
+            db.set_setting(self.conn, "alerted_audit_id", newest)
+        hour, _, count = db.get_setting(self.conn, "auth_failures", "").partition(":")
+        if count.isdigit() and int(count) > AUTH_FAILURE_ALERT and db.get_setting(self.conn, "auth_alerted_hour") != hour:
+            db.set_setting(self.conn, "auth_alerted_hour", hour)
+            await self.alert(f"{count} failed relay sign-ins in the last hour. Someone may be probing the API; "
+                             "check `admin_cli audit` and the API log.")
+
+    async def permitted(self, guild, slot):
+        before = slot.refused
+        ok = await super().permitted(guild, slot)
+        if not ok and slot.refused != before:
+            await self.alert(f"Slot **{slot.settings.label}** in `{guild.id}` is refused: the bot's role has "
+                             f"{slot.refused} server-wide.")
+        return ok
 
     async def alert(self, text):
         """DM the operator (owner_user_id). Never fails."""

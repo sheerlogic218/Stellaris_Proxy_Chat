@@ -1,0 +1,112 @@
+# The central Proxy Chat server: three containers (design §3.1).
+#
+#   ts   Tailscale sidecar: the only thing on the internet (Funnel, HTTPS 443),
+#        forwards to api:8080 over the internal "edge" network. Its own tailnet
+#        node, tag:proxychat, which the ACL gives no access to anything.
+#   api  Relay-facing API. No Discord token, no route out (edge is internal-only).
+#   bot  Discord bot. Holds the token, accepts nothing inbound, egress only
+#        (the host firewall blocks LAN and private ranges: firewall-docker-user.sh).
+#
+# api and bot share only ./data (the SQLite database). Run from this folder:
+#   docker compose up -d --build
+# Setup: deploy/DEPLOY.md. Values to fill in: docs/DEPLOYMENT_PLACEHOLDERS.md.
+
+name: proxychat
+
+x-hardening: &hardening
+  read_only: true
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  pids_limit: 128
+  restart: unless-stopped
+  logging:
+    driver: local
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  ts:
+    <<: *hardening
+    image: ${TS_IMAGE:-tailscale/tailscale:stable}
+    hostname: ${TS_HOSTNAME:-proxychat}
+    environment:
+      TS_HOSTNAME: ${TS_HOSTNAME:-proxychat}
+      # Single-use, pre-authorised, tagged key; only needed for the first start
+      TS_AUTHKEY: file:/run/secrets/ts_authkey
+      TS_EXTRA_ARGS: --advertise-tags=tag:proxychat
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "true"
+      TS_SERVE_CONFIG: /config/serve.json
+    volumes:
+      - ts-state:/var/lib/tailscale
+      - ./ts-serve.json:/config/serve.json:ro
+    secrets: [ts_authkey]
+    networks: [edge, ts_out]
+    mem_limit: 256m
+    cpus: 0.5
+
+  api:
+    <<: *hardening
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: api
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.14-slim}
+    image: proxychat-api
+    user: "10001:10001"
+    volumes:
+      - ./data:/data
+      - ./config/server.toml:/config/server.toml:ro
+    networks: [edge]
+    mem_limit: 256m
+    cpus: 0.5
+
+  bot:
+    <<: *hardening
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: bot
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.14-slim}
+    image: proxychat-bot
+    user: "10001:10001"
+    volumes:
+      - ./data:/data
+      - ./config/server.toml:/config/server.toml:ro
+    secrets: [discord_token]
+    networks: [bot_out]
+    mem_limit: 384m
+    cpus: 1.0
+
+secrets:
+  discord_token:
+    file: ./secrets/discord_token
+  ts_authkey:
+    file: ./secrets/ts_authkey
+
+volumes:
+  ts-state:
+
+networks:
+  # ts <-> api only, no route anywhere else
+  edge:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET:-172.30.0.0/24}
+  # ts -> internet (Tailscale control and relays)
+  ts_out:
+    ipam:
+      config:
+        - subnet: ${TS_OUT_SUBNET:-172.30.1.0/24}
+  # bot -> internet (Discord)
+  bot_out:
+    ipam:
+      config:
+        - subnet: ${BOT_OUT_SUBNET:-172.30.2.0/24}

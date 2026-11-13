@@ -1,0 +1,2 @@
+# The server bot container (proxychat_server). Lock: requirements/bot.txt
+discord.py==2.7.1

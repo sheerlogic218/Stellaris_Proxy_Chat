@@ -1,0 +1,6 @@
+# Local development and CI: everything, plus test and audit tools
+-r api.in
+-r bot.in
+-r relay.in
+pytest
+pip-audit
