@@ -62,11 +62,11 @@ script could ask.
 
 ---
 
-## Coming in later milestones
+## Relay (on each game host's PC)
 
-These don't exist in the code yet. They're listed so the installer can plan for them.
-
-### M5: relay (on each game host's PC)
+Set by `python -m proxychat_relay pair <server_url> <code> --label <name> [--log <path>]`. It's stored in
+`%APPDATA%\ProxyChatRelay\relay.toml`, and the private key goes in Windows Credential Manager (`proxychat-relay`).
+There are no placeholders in files: everything comes from these arguments.
 
 | Value | What it is | Default or how to find it | Who | Ask? |
 |---|---|---|---|---|
@@ -75,7 +75,10 @@ These don't exist in the code yet. They're listed so the installer can plan for 
 | Relay label | How the host shows up in `/proxychat relay list` | The host's name | host | ✅ |
 | `game.log` path | Only if Stellaris logs somewhere unusual | `Documents\Paradox Interactive\Stellaris\logs\game.log` | host | ✅ (with the default filled in) |
 
-### M6: home server deployment (Pop!_OS)
+## Coming in M6: home server deployment (Pop!_OS)
+
+This doesn't exist in the code yet. It's listed so the installer can plan for it.
+
 
 | Value | What it is | How to find it | Who | Ask? |
 |---|---|---|---|---|

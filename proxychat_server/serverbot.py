@@ -37,7 +37,7 @@ RETENTION_SECONDS = 3600.0
 STALE_GAME_SECONDS = 30 * 86400
 
 def relay_pair_command(public_url, code):
-    """What a host runs to pair. The relay program and its name come in M5."""
+    """What a host runs to pair (proxychat_relay)."""
     return f'python -m proxychat_relay pair {public_url} {code} --label "Your name"'
 
 

@@ -2,4 +2,6 @@ discord.py==2.7.1
 # Central server API (discord.py already depends on aiohttp) and relay signing
 aiohttp==3.14.5
 cryptography==50.0.2
+# Relay: keeps its private key in Windows Credential Manager
+keyring==25.7.0
 pytest
