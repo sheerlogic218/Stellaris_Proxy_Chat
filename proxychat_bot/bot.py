@@ -40,6 +40,8 @@ DEBOUNCE_SECONDS = 0.3
 RESYNC_SECONDS = 300.0
 # How long an empty call channel is kept, so both players have time to get in
 CALL_GRACE_SECONDS = 60.0
+# A channel Discord won't let the bot change is reported again this often
+REFUSAL_REPEAT_SECONDS = 600.0
 
 EVERYONE = discord.PermissionOverwrite(view_channel=False, connect=False)
 SELF = discord.PermissionOverwrite(view_channel=True, connect=True, move_members=True)
@@ -85,7 +87,7 @@ class ProxyChatBot(discord.Client):
         self.dirty = asyncio.Event()    # wakes the reconcile loop; Slot.dirty says which slots
         self._members = {}      # (guild id, user id) -> member or None
         self._joined = {}       # user id -> when they joined their current channel
-        self._refused = set()   # (channel id, action) already reported as refused by Discord
+        self._refused = {}      # (channel id, action) -> when Discord's refusal was last reported
         register_commands(self)
 
     # ---- slots ----------------------------------------------------------
@@ -410,32 +412,45 @@ class ProxyChatBot(discord.Client):
             self.refused(fresh, "delete", e)
             return False
         slot.store.owned.discard(channel_id)
-        self._refused = {k for k in self._refused if k[0] != channel_id}
+        self._refused = {k: t for k, t in self._refused.items() if k[0] != channel_id}
         return True
 
     async def create_channel(self, guild, category, name, overwrites, slot=None):
         """Create a voice channel and remember it as the slot's.
 
-        It's created synced to the category, so it inherits the category's entry for
-        the bot's role (Manage Channels, Manage Permissions...). Discord only lets a
-        bot without server-wide rights change a channel's permissions when it has such
-        an entry in that channel, and it can't add one itself. The per-player
-        permissions are applied straight after, keeping the bot role's entry.
+        It's created with a copy of the category's permissions, so it carries the
+        category's entry for the bot's role (Manage Channels, Manage Permissions...).
+        Discord only lets a bot without server-wide rights change or delete a channel
+        when it has such an entry in that channel, and it can't add one itself. The
+        copy has to be explicit: discord.py always sends a permission list, even an
+        empty one, and then Discord doesn't sync the new channel to its category.
+        The per-player permissions are applied straight after, keeping that entry.
+        If Discord refuses them, the channel is kept (no duplicate next time) and the
+        refusal reported.
         """
         slot = self._slot(slot)
-        channel = await guild.create_voice_channel(name, category=category)
+        channel = await guild.create_voice_channel(name, category=category, overwrites=dict(category.overwrites))
         slot.store.owned.add(channel.id)
         slot.store.save()
-        await self.apply_overwrites(channel, overwrites)
+        try:
+            await self.apply_overwrites(channel, overwrites)
+        except discord.Forbidden as e:
+            self.refused(channel, "set permissions on", e)
         return channel
 
     def refused(self, channel, action, error):
-        """Log a permission refusal from Discord once per channel and action, then carry on."""
+        """Log a permission refusal from Discord, then carry on. Repeats show every 10 minutes."""
         key = (getattr(channel, "id", None), action)
-        if key in self._refused:
+        now = time.monotonic()
+        last = self._refused.get(key)
+        if last is not None and now - last < REFUSAL_REPEAT_SECONDS:
             log.debug("Still refused: %s %r", action, getattr(channel, "name", "?"))
             return
-        self._refused.add(key)
+        self._refused[key] = now
+        if last is not None:
+            log.warning("Still refused to %s %r: Discord won't let the bot touch it. Delete it by hand, or "
+                        "Edit Channel > Permissions > Sync with category.", action, getattr(channel, "name", "?"))
+            return
         log.error("Discord refused to %s %r (%s). Check the bot role's permissions on the category. "
                   "A channel created before the permission fix may need deleting by hand, or "
                   "Edit Channel > Permissions > Sync with category.", action, getattr(channel, "name", "?"), error)
@@ -459,7 +474,7 @@ class ProxyChatBot(discord.Client):
             store.owned.discard(channel.id)
         log.info("Creating text channel %r", name)
         channel = await guild.create_text_channel(
-            name, category=category,
+            name, category=category, overwrites=dict(category.overwrites),
             topic="Proxy Chat: /claim your empire, /empires, /contacts. Admins: /proxychat",
         )
         store.owned.add(channel.id)
@@ -690,8 +705,10 @@ class ProxyChatBot(discord.Client):
             elif self.occupants(guild, channel):
                 continue   # someone's still in it: wait until it's empty
             else:
-                log.info("Deleting channel %r (not a claimed empire in this game)", channel.name)
-            await self.delete_owned(guild, channel_id, slot)
+                why = "session ended" if store.paused else "not a claimed empire in this game"
+                log.info("Deleting channel %r (%s)", channel.name, why)
+            if await self.delete_owned(guild, channel_id, slot):
+                log.info("Deleted %r", channel.name)
             changed = True
         for channel_id in [c for c in slot.calls if guild.get_channel(c) is None]:
             del slot.calls[channel_id]
@@ -781,12 +798,17 @@ class ProxyChatBot(discord.Client):
 
     async def apply_overwrites(self, channel, desired):
         # One request per changed entry rather than rewriting the whole channel,
-        # since joins and leaves can change these often. Entries for the bot's own
-        # roles are left exactly as they are: they're what lets it manage the channel.
+        # since joins and leaves can change these often. The bot's own entries are
+        # left exactly as they are: they're what lets it manage the channel. That's
+        # its roles' entries and, once the channel has one, its own member entry
+        # (server owners may grant the category's rights to the bot user instead of
+        # its role; "correcting" that entry would take its own rights away).
         me = channel.guild.me
-        own_roles = {r.id for r in getattr(me, "roles", ())} - {channel.guild.default_role.id}
-        current = {target.id: (target, ow) for target, ow in channel.overwrites.items() if target.id not in own_roles}
-        wanted = {target.id: (target, ow) for target, ow in desired.items() if target.id not in own_roles}
+        own = {r.id for r in getattr(me, "roles", ())} - {channel.guild.default_role.id}
+        if any(target.id == me.id for target in channel.overwrites):
+            own.add(me.id)
+        current = {target.id: (target, ow) for target, ow in channel.overwrites.items() if target.id not in own}
+        wanted = {target.id: (target, ow) for target, ow in desired.items() if target.id not in own}
         for tid, (target, ow) in wanted.items():
             if tid not in current or current[tid][1].pair() != ow.pair():
                 await channel.set_permissions(target, overwrite=ow)

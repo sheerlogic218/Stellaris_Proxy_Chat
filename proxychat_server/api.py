@@ -299,7 +299,10 @@ def main():
     parser.add_argument("--config", default=os.environ.get("PROXYCHAT_SERVER_CONFIG", str(DEFAULT_CONFIG)))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    asyncio.run(serve(load_api_config(args.config)))
+    try:
+        asyncio.run(serve(load_api_config(args.config)))
+    except KeyboardInterrupt:
+        log.info("API stopped")
 
 
 if __name__ == "__main__":

@@ -331,3 +331,78 @@ def test_no_message_can_ping_anyone():
     bot = make_bot({5: guild}, [("s1", 5, category(guild, "Proxy Chat"))])
     mentions = bot.allowed_mentions
     assert not (mentions.everyone or mentions.users or mentions.roles or mentions.replied_user)
+
+
+# ---- locked-down servers: the bot's rights come only from its category ------------
+
+def forbidden():
+    return discord.Forbidden(type("R", (), {"status": 403, "reason": "Missing Permissions"})(), "Missing Permissions")
+
+
+def locked_down_guild(on_member=False):
+    """Like a real locked-down server: the bot can only change channels where its own entry
+    (on its role, or on the bot user when on_member) grants Manage Permissions."""
+    guild = FakeGuild([101, 102])
+    bot_role = discord.Object(55)
+    guild.me.roles = [guild.default_role, bot_role]
+    cat = category(guild, "Proxy Chat")
+    holder = guild.me if on_member else bot_role
+    cat.overwrites = {holder: discord.PermissionOverwrite(view_channel=True, manage_channels=True,
+                                                          manage_roles=True, move_members=True)}
+
+    def guarded(channel):
+        def has_entry():
+            return any(t.id == holder.id and ow.manage_roles for t, ow in channel.overwrites.items())
+        set_permissions, delete = channel.set_permissions, channel.delete
+
+        async def guarded_set(target, overwrite=None):
+            if not has_entry():
+                raise forbidden()
+            await set_permissions(target, overwrite=overwrite)
+
+        async def guarded_delete(reason=None):
+            if not has_entry():
+                raise forbidden()
+            await delete(reason=reason)
+
+        channel.set_permissions, channel.delete = guarded_set, guarded_delete
+        return channel
+
+    add = guild._add
+    guild._add = lambda ch: add(guarded(ch)) if ch.type != discord.ChannelType.category else add(ch)
+    return guild, cat, bot_role
+
+
+@pytest.mark.parametrize("on_member", [False, True], ids=["role entry", "bot user entry"])
+def test_new_channels_carry_the_categorys_bot_entry_on_a_locked_down_server(on_member):
+    guild, cat, bot_role = locked_down_guild(on_member)
+    holder = guild.me.id if on_member else bot_role.id
+    bot = make_bot({5: guild}, [("s1", 5, cat)], strict=True)
+    slot = bot.slots["s1"]
+    slot.store.current.claims = {101: 1}
+    run(bot.reconcile(slot))
+    rocks = next(c for c in cat.voice_channels if c.name == "Rocks")
+    entry = next(ow for t, ow in rocks.overwrites.items() if t.id == holder)
+    assert entry.manage_roles and entry.manage_channels                 # the bot kept its own rights
+    assert 101 in {t.id for t, ow in rocks.overwrites.items() if ow.connect}
+    commands = guild.get_channel(slot.store.commands_channel)
+    assert any(t.id == holder for t in commands.overwrites)
+
+    slot.store.current.claims = {101: 1, 102: 2}                         # it can keep editing
+    run(bot.reconcile(slot))
+    assert voice_in(cat) == {"Rocks", "Tzynn Empire"}
+
+    slot.store.current.claims = {}
+    run(bot.reconcile(slot))
+    assert voice_in(cat) == set()                                        # and delete it
+
+
+def test_a_refused_new_channel_is_kept_not_duplicated():
+    guild, cat, bot_role = locked_down_guild()
+    cat.overwrites = {}                                                  # owner forgot the category entry
+    bot = make_bot({5: guild}, [("s1", 5, cat)])
+    slot = bot.slots["s1"]
+    slot.store.current.claims = {101: 1}
+    run(bot.reconcile(slot))
+    run(bot.reconcile(slot))
+    assert [c.name for c in cat.voice_channels] == ["Rocks"]

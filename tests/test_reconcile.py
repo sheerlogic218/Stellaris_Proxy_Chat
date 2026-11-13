@@ -120,16 +120,16 @@ class FakeGuild:
     async def create_category(self, name, overwrites=None):
         return self._add(FakeChannel(self, name, discord.ChannelType.category, overwrites=overwrites))
 
-    async def create_text_channel(self, name, category, topic=None):
-        # No overwrites given: like Discord, it takes the category's
-        ch = FakeChannel(self, name, discord.ChannelType.text, category_id=category.id, overwrites=category.overwrites)
+    # Like discord.py: it always sends a permission list (an empty one when none is
+    # given), so Discord does NOT copy the category's permissions on its own
+    async def create_text_channel(self, name, category, topic=None, overwrites=None):
+        ch = FakeChannel(self, name, discord.ChannelType.text, category_id=category.id, overwrites=overwrites or {})
         ch.topic = topic
         return self._add(ch)
 
     async def create_voice_channel(self, name, category, overwrites=None):
-        # Like Discord: no overwrites given means synced with the category
-        inherited = category.overwrites if overwrites is None else overwrites
-        return self._add(FakeChannel(self, name, discord.ChannelType.voice, category_id=category.id, overwrites=inherited))
+        return self._add(FakeChannel(self, name, discord.ChannelType.voice, category_id=category.id,
+                                     overwrites=overwrites or {}))
 
     async def fetch_channel(self, id):
         if id not in self.channels:

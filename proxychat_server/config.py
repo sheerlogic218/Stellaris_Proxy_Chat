@@ -42,12 +42,23 @@ class ApiConfig:
     min_relay_version: str = "0.1.0"
 
 
+def _windows_user_token():
+    """Trials on Windows: the same user variable local mode reads."""
+    if os.name != "nt":
+        return ""
+    from proxychat_bot.config import _token_from_env
+    return (_token_from_env() or "").strip()
+
+
 def read_token(token_file):
+    """The environment variable, else the token file, else (Windows only) the user variable."""
     token = os.environ.get(TOKEN_ENV, "").strip()
     if token:
         return token
     path = Path(token_file)
-    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
+    if path.exists():
+        return path.read_text(encoding="utf-8").strip()
+    return _windows_user_token()
 
 
 def _read(path):

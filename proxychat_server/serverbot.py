@@ -38,7 +38,9 @@ STALE_GAME_SECONDS = 30 * 86400
 
 def relay_pair_command(public_url, code):
     """What a host runs to pair (proxychat_relay)."""
-    return f'python -m proxychat_relay pair {public_url} {code} --label "Your name"'
+    local = public_url.startswith(("http://127.0.0.1", "http://localhost"))
+    flag = "--insecure-local " if local else ""   # trials on one PC only
+    return f'python -m proxychat_relay {flag}pair {public_url} {code} --label "Your name"'
 
 
 NO_SLOT_SERVER = ("Run this in a channel inside a Proxy Chat category, so the bot knows which game you mean. "
@@ -48,9 +50,11 @@ NO_SLOT_SERVER = ("Run this in a channel inside a Proxy Chat category, so the bo
 class ServerBot(ProxyChatBot):
     server_mode = True
 
-    def __init__(self, scfg, conn, source=None):
+    def __init__(self, scfg, conn, source=None, dev_guild=None):
         self.conn = conn
         self.scfg = scfg
+        # Trials: register commands on this one guild instead of globally
+        self.dev_guild = dev_guild
         slots, guilds = self._read_config()
         super().__init__(scfg, source=source or QueueSource(conn, scfg.poll_seconds),
                          slots=slots, guilds=guilds, strict_permissions=True)
@@ -100,7 +104,13 @@ class ServerBot(ProxyChatBot):
     # ---- startup and upkeep ----------------------------------------------
 
     async def setup_hook(self):
-        await self.tree.sync()   # global: every approved guild gets the commands
+        if self.dev_guild:
+            guild = discord.Object(self.dev_guild)
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
+            log.warning("Trial mode: commands registered on guild %s only", self.dev_guild)
+        else:
+            await self.tree.sync()   # global: every approved guild gets the commands
         asyncio.create_task(self.watch_events())
         asyncio.create_task(self.reconcile_loop())
         asyncio.create_task(self.upkeep_loop())
@@ -172,6 +182,11 @@ class ServerBot(ProxyChatBot):
         return row is not None and row["status"] in ("approved", "frozen")
 
     async def refuse_guild(self, guild):
+        if self.dev_guild:
+            # A trial shares the real bot's identity: never walk out of a real server
+            log.warning("Trial mode: guild %s (%s) isn't approved here; NOT leaving it",
+                        guild.id, getattr(guild, "name", "?"))
+            return
         log.warning("Leaving guild %s (%s): not approved", guild.id, getattr(guild, "name", "?"))
         db.audit(self.conn, "bot", "left unapproved guild", guild.id, clean_name(getattr(guild, "name", "")))
         await self.alert(f"Someone added the bot to **{clean_name(getattr(guild, 'name', ''), 'a server')}** "
@@ -189,6 +204,8 @@ class ServerBot(ProxyChatBot):
             db.audit(self.conn, "bot", "joined guild", guild.id)
 
     async def on_guild_remove(self, guild):
+        if self.dev_guild:
+            return
         # Kicked or the server was deleted: stop serving it; its data goes after retention
         if db.set_guild_status(self.conn, guild.id, "removed", "bot"):
             await self.alert(f"The bot was removed from `{guild.id}`. Its data is deleted in 7 days.")

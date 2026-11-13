@@ -19,6 +19,7 @@ seconds.
   status
   backup <path>
   import-state <guild_id> <category_id> <state.json> [--label TEXT]
+  export-state <slot_id> <state.json>
   set max-guilds <N>
 """
 
@@ -171,6 +172,24 @@ def cmd_import_state(conn, args, out):
     return 0
 
 
+def cmd_export_state(conn, args, out):
+    """Write a slot's state as a local-mode state.json (the reverse of import-state)."""
+    path = Path(args.path)
+    if path.exists():
+        out(f"{path} already exists; not overwriting it. Move it aside first.")
+        return 1
+    if conn.execute("SELECT 1 FROM slots WHERE slot_id = ?", (args.slot_id,)).fetchone() is None:
+        out("No slot by that id. See `slot list`.")
+        return 1
+    data = db.SqliteBackend(conn, args.slot_id).read() or Store().to_json()
+    store = Store(path)
+    store.load_json(data)
+    store.save()
+    db.audit(conn, ACTOR, "export-state", None, f"{args.slot_id} -> {path}")
+    out(f"Exported slot {args.slot_id} to {path}.")
+    return 0
+
+
 def cmd_set(conn, args, out):
     if args.value < 1:
         out("Must be at least 1.")
@@ -225,6 +244,11 @@ def build_parser():
     i.add_argument("state")
     i.add_argument("--label", default="Game 1")
     i.set_defaults(func=cmd_import_state)
+
+    e = sub.add_parser("export-state")
+    e.add_argument("slot_id")
+    e.add_argument("path")
+    e.set_defaults(func=cmd_export_state)
 
     st = sub.add_parser("set")
     st.add_argument("name", choices=["max-guilds"])

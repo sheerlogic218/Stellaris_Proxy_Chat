@@ -17,6 +17,7 @@ from .config import DEFAULT_CONFIG, TOKEN_ENV, load_server_config
 def main():
     parser = argparse.ArgumentParser(prog="proxychat_server")
     parser.add_argument("--config", default=os.environ.get("PROXYCHAT_SERVER_CONFIG", str(DEFAULT_CONFIG)))
+    parser.add_argument("--dev-guild", type=int, help="trials: register commands on this guild only, not globally")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -29,7 +30,7 @@ def main():
     from .serverbot import ServerBot
 
     conn = db.connect(cfg.db_path)
-    ServerBot(cfg, conn).run(cfg.token, log_handler=None)
+    ServerBot(cfg, conn, dev_guild=args.dev_guild).run(cfg.token, log_handler=None)
 
 
 if __name__ == "__main__":

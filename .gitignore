@@ -16,3 +16,6 @@ server.toml
 *.db
 *.db-wal
 *.db-shm
+
+# Local trials of the central server (database, config)
+trial/

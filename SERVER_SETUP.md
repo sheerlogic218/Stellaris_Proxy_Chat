@@ -92,6 +92,8 @@ Administrator, Manage Server, Manage Channels, Manage Roles and Move Members mus
 
    This is the **only** place the bot gets Manage Channels, Manage Permissions and
    Move Members, so it can only change things inside this category.
+   Adding the bot itself (the bot user) instead of its role works just as well.
+   Either way, **Manage Permissions** here is the category's version of Manage Roles.
    - Click **+** and add the **Proxy Chat Tester** role (created in A3). Set
      ✅ **View Channels, Send Messages, Use Application Commands**. That's what
      lets testers see and use **#bot-commands**. It doesn't open up the voice

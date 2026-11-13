@@ -301,8 +301,7 @@ def test_retention_forgets_old_games_but_never_the_current_one(conn):
     assert store.games["4-4-4"].seen_at is not None
 
 
-def test_server_config_reads_the_token_file(tmp_path, monkeypatch):
-    monkeypatch.delenv("PROXYCHAT_DISCORD_TOKEN", raising=False)
+def test_server_config_reads_the_token_file(tmp_path):
     (tmp_path / "token").write_text("abc\n", encoding="utf-8")
     (tmp_path / "server.toml").write_text(
         f'[server]\ndb_path = "x.db"\ntoken_file = "{(tmp_path / "token").as_posix()}"\nowner_user_id = 42\n',
@@ -386,3 +385,42 @@ def test_cli_relays(tmp_path):
     assert cli(tmp_path, "relay", "revoke", "k1")[0] == 0
     assert cli(tmp_path, "relay", "revoke", "k1")[0] == 1         # already revoked
     assert "1 key(s)" in cli(tmp_path, "relay", "revoke-all")[1]
+
+
+def test_cli_export_state_round_trips_with_import(tmp_path):
+    local = Store(tmp_path / "state.json")
+    local.current_key = K
+    local.game(K).claims = {101: 1}
+    local.owned = {500}
+    local.save()
+    cli(tmp_path, "guild", "approve", "5")
+    cli(tmp_path, "import-state", "5", "100", str(local.path))
+    conn = db.connect(tmp_path / "proxychat.db")
+    slot_id = db.slots_of(conn, 5)[0]["slot_id"]
+    assert cli(tmp_path, "export-state", slot_id, str(local.path))[0] == 1          # won't overwrite
+    assert cli(tmp_path, "export-state", "s_nope", str(tmp_path / "x.json"))[0] == 1
+    assert cli(tmp_path, "export-state", slot_id, str(tmp_path / "back.json"))[0] == 0
+    back = Store.load(tmp_path / "back.json")
+    assert back.current.claims == {101: 1} and back.owned == {500}
+
+
+def test_trial_pair_command_adds_the_local_flag():
+    from proxychat_server.serverbot import relay_pair_command
+    assert "--insecure-local" in relay_pair_command("http://127.0.0.1:18080", "AAAA-BBBB-CCCC")
+    assert "--insecure-local" not in relay_pair_command("https://x.ts.net", "AAAA-BBBB-CCCC")
+
+
+def test_token_file_wins_over_the_windows_variable(tmp_path, monkeypatch):
+    import proxychat_server.config as server_config
+    monkeypatch.setattr(server_config, "_windows_user_token", lambda: "from-windows")
+    (tmp_path / "token").write_text("from-file", encoding="utf-8")
+    assert server_config.read_token(tmp_path / "token") == "from-file"
+    assert server_config.read_token(tmp_path / "missing") == "from-windows"
+
+
+def test_trial_mode_never_leaves_a_server(conn):
+    bot = ServerBot(ServerConfig(Path("unused"), "token"), conn, dev_guild=G)
+    stranger = LeavingGuild(99)
+    run(bot.on_guild_join(stranger))
+    run(bot.on_guild_remove(LeavingGuild(98)))
+    assert not stranger.left and db.guild(conn, 98) is None
